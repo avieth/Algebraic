@@ -45,6 +45,20 @@ instance Arrow f => Arrow (SideChannel a f) where
                           . first (runSideChannel f)
                           . arr (\((t, m), c) -> ((t, c), m))
 
+instance ArrowChoice f => ArrowChoice (SideChannel a f) where
+    left f = SideChannel $ arr after
+                         . left (runSideChannel f)
+                         . arr before
+      where
+        before :: forall s c a . (Either s c, a) -> Either (s, a) (c, a)
+        before (sum, a) = case sum of
+            Left s -> Left (s, a)
+            Right c -> Right (c, a)
+        after :: forall s c a . Either (s, a) (c, a) -> (Either s c, a)
+        after sum = case sum of
+            Left (s, a) -> (Left s, a)
+            Right (c, a) -> (Right c, a)
+
 instance ArrowApply f => ArrowApply (SideChannel monoid f) where
     app = SideChannel $ proc ((f, x), m) -> do (y, m') <- app -< (runSideChannel f, (x, m))
                                                returnA -< (y, m')
