@@ -46,6 +46,8 @@ module Data.Algebraic.Function (
     , known
     , forget
     , throughTraversable
+    , EmptyArrow(..)
+    , fcompose
 
     ) where
 
@@ -94,7 +96,7 @@ instance (Category f, Category g) => Monoid (F f g s s) where
 --            \             ^                /
 --             \            |               /
 --              \                          /
---                  Kleisli (Const ())
+--                     EmptyArrow
 --
 -- where x < y means that there is an arrow homomorphism from y to x.
 type Total = Kleisli Identity
@@ -104,7 +106,17 @@ type Bijection = Kleisli Identity
 type Injection = Kleisli Maybe
 type Surjection = Kleisli NonEmpty
 type Multijection = Kleisli []
-type Function = Kleisli (Const ())
+type Function = EmptyArrow
+
+data EmptyArrow s t = EmptyArrow
+
+instance Category EmptyArrow where
+    id = EmptyArrow
+    _ . _ = EmptyArrow
+
+instance Arrow EmptyArrow where
+    arr _ = EmptyArrow
+    first _ = EmptyArrow
 
 -- | Must really be a homomorphism of arrows:
 --
@@ -113,19 +125,50 @@ type Function = Kleisli (Const ())
 --     h (f . g) = h f . h g
 --     h id = id
 --
-class ArrowHomomorphism f g where
+class
+    ( Arrow f
+    , Arrow g
+    ) => ArrowHomomorphism f g
+  where
     arrowHomomorphism :: forall s t . f s t -> g s t
 
-instance {-# OVERLAPS #-} ArrowHomomorphism m m where
+--instance {-# OVERLAPS #-} Arrow a => ArrowHomomorphism a a where
+--    arrowHomomorphism = id
+
+instance {-# OVERLAPS #-} ArrowHomomorphism Surjection Surjection where
     arrowHomomorphism = id
 
 -- | Kleisli Identity is the top element.
-instance {-# OVERLAPS #-} Monad n => ArrowHomomorphism (Kleisli Identity) (Kleisli n) where
-    arrowHomomorphism kid = Kleisli $ return . runIdentity . runKleisli kid
+--
+--     arrowHomomorphism (arr f)
+--   = Kleisli $ return . runIdentity . runKleisli (arr f)
+--   = Kleisli $ return
+--   = arr f
+--
+--     arrowHomomorphism (first f)
+--   = Kleisli $ return . runIdentity . runKleisli (first f)
+--   = Kleisli $ \(x, c) -> return (x, c)
+--   = first f
+--
+--     arrowHomomorphism id
+--   = Kleisli $ return . runIdentity . runKleisli id
+--   = Kleisli $ return
+--   = id
+--
+--     arrowHomomorphism f . arrowHomomorphism g
+--   = (Kleisli $ return . runIdentity . runKleisli f) . (Kleisli $ return . runIdentity . runKleisli g)
+--   = Kleisli $ \x -> return (runIdentity (runKleisli g x)) >>= \y -> return (runIdentity (runKleisli f y))
+--   = Kleisli $ \x -> \y -> return (runIdentity (runKleisli f (runIdentity (runKleisli g x))))
+--   = ???
+--   = Kleisli $ return . runIdentity . runKleisli (f . g)
+--   = arrowHomomorphism (f . g)
+--
+instance {-# OVERLAPS #-} Arrow a => ArrowHomomorphism (Kleisli Identity) a where
+    arrowHomomorphism kid = arr (runIdentity . runKleisli kid)
 
--- | Kleisli (Const ()) is the bottom element.
-instance {-# OVERLAPS #-} ArrowHomomorphism (Kleisli n) (Kleisli (Const ())) where
-    arrowHomomorphism _ = Kleisli $ const (Const ())
+-- | EmptyArrow is the bottom element.
+instance {-# OVERLAPS #-} Arrow a => ArrowHomomorphism a EmptyArrow where
+    arrowHomomorphism _ = EmptyArrow
 
 -- | Here we use the natural transformation Maybe ~> []
 instance {-# OVERLAPS #-} ArrowHomomorphism (Kleisli Maybe) (Kleisli []) where
@@ -145,16 +188,41 @@ relax
     -> F f2 g2 s t
 relax f = F (arrowHomomorphism (to f)) (arrowHomomorphism (from f))
 
+type family ArrowHomomorphismGreatestLowerBound (g :: * -> * -> *) (h :: * -> * -> *) :: * -> * -> *
+type instance ArrowHomomorphismGreatestLowerBound g g = g
+type instance ArrowHomomorphismGreatestLowerBound (Kleisli Identity) g = g
+type instance ArrowHomomorphismGreatestLowerBound g (Kleisli Identity) = g
+type instance ArrowHomomorphismGreatestLowerBound EmptyArrow g = EmptyArrow
+type instance ArrowHomomorphismGreatestLowerBound g EmptyArrow = EmptyArrow
+type instance ArrowHomomorphismGreatestLowerBound (Kleisli Maybe) (Kleisli NonEmpty) = Kleisli []
+type instance ArrowHomomorphismGreatestLowerBound (Kleisli Maybe) (Kleisli []) = Kleisli []
+type instance ArrowHomomorphismGreatestLowerBound (Kleisli []) (Kleisli Maybe) = Kleisli []
+type instance ArrowHomomorphismGreatestLowerBound (Kleisli NonEmpty) (Kleisli []) = Kleisli []
+type instance ArrowHomomorphismGreatestLowerBound (Kleisli []) (Kleisli NonEmpty) = Kleisli []
+
+fcompose
+    :: ( ArrowHomomorphism g1 (ArrowHomomorphismGreatestLowerBound g1 g2)
+       , ArrowHomomorphism g2 (ArrowHomomorphismGreatestLowerBound g1 g2)
+       , Category (ArrowHomomorphismGreatestLowerBound g1 g2)
+       , ArrowHomomorphism h1 (ArrowHomomorphismGreatestLowerBound h1 h2)
+       , ArrowHomomorphism h2 (ArrowHomomorphismGreatestLowerBound h1 h2)
+       , Category (ArrowHomomorphismGreatestLowerBound h1 h2)
+       )
+    => F g2 h2 t u
+    -> F g1 h1 s t
+    -> F (ArrowHomomorphismGreatestLowerBound g1 g2) (ArrowHomomorphismGreatestLowerBound h1 h2) s u
+fcompose left right = relax left . relax right
+
 -- | We get a Functor instance only if we have no obligation to give a
 --   meaningful opposite arrow.
 instance Arrow f => Functor (F f Function s) where
-    fmap f x = F (to x >>> arr f) (Kleisli (const (Const ())))
+    fmap f x = F (to x >>> arr f) EmptyArrow
 
 -- | We get an Applicative instance only if we have no obligation to give a
 --   meaningful opposite arrow.
 instance Arrow f => Applicative (F f Function s) where
-    pure x = F (arr (const x)) (Kleisli (const (Const ())))
-    mf <*> mx = F fto (Kleisli (const (Const ())))
+    pure x = F (arr (const x)) EmptyArrow
+    mf <*> mx = F fto EmptyArrow
       where
         fto = proc y -> do f <- to mf -< y
                            x <- to mx -< y
@@ -164,7 +232,7 @@ instance Arrow f => Applicative (F f Function s) where
 --   meaningful opposite arrow.
 instance ArrowApply f => Monad (F f Function s) where
     return = pure
-    mx >>= k = F fto (Kleisli (const (Const ())))
+    mx >>= k = F fto EmptyArrow
       where
         fto = proc y -> do z <- to mx -< y
                            w <- app -< (to (k z), y)
