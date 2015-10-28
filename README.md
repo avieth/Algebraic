@@ -21,15 +21,16 @@ we would the typical function type `(->)`. Judiciously choosing types for
 
 ```Haskell
 -- Total functions always produce a value...
-type TotalFunction = F (Kleisli Identity) (Const ())
+type TotalFunction = F (Kleisli Identity) (EmptyArrow)
 
 -- ... but partial functions do not.
--- Notice how the choice of Const () means we don't have to give any
+-- Notice how the choice of EmptyArrow means we don't have to give any
 -- information for the 'from' part of the definition.
-type PartialFunction = F (Kleisli Maybe) (Const ())
+type PartialFunction = F (Kleisli Maybe) (EmptyArrow)
 
 -- Bijections can always be inverted...
 type TotalBijection = F (Kleisli Identity) (Kleisli Identity)
+
 
 -- ... injections can be inverted too, but not everything in the codomain
 -- has a preimage.
@@ -56,8 +57,8 @@ question:
             |          \        /          |
             |          Kleisli []          |
             |                              |
-            \             ^                /
-             \            |               /
+            \              ^               /
+             \             |              /
               \                          /
                       EmptyArrow
 
