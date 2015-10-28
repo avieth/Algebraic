@@ -66,9 +66,8 @@ question:
 
 In this diagram, there is a line from `x` to `y` if and only if there is
 an arrow homomorphism from `y` to `x`. Notice the one in the middle:
-`Kleisli []`. This one exhibits a bit of surjectivity, a bit of injectivity,
-but I don't know if there's a standard name for this kind of thing. In the
-program text it's a `Multijection`.
+`Kleisli []`. This is just a normal function: every image has 0 or more
+preimages.
 
 This ordering is expressed by the `ArrowHomomorphism` class and its instances,
 and exploited by the function

@@ -34,7 +34,6 @@ module Data.Algebraic.Function (
     , Bijection
     , Injection
     , Surjection
-    , Multijection
     , Function
     , opposite
     , ProductF
@@ -105,8 +104,7 @@ type Multi = Kleisli NonEmpty
 type Bijection = Kleisli Identity
 type Injection = Kleisli Maybe
 type Surjection = Kleisli NonEmpty
-type Multijection = Kleisli []
-type Function = EmptyArrow
+type Function = Kleisli []
 
 data EmptyArrow s t = EmptyArrow
 
@@ -215,12 +213,12 @@ fcompose left right = relax left . relax right
 
 -- | We get a Functor instance only if we have no obligation to give a
 --   meaningful opposite arrow.
-instance Arrow f => Functor (F f Function s) where
+instance Arrow f => Functor (F f EmptyArrow s) where
     fmap f x = F (to x >>> arr f) EmptyArrow
 
 -- | We get an Applicative instance only if we have no obligation to give a
 --   meaningful opposite arrow.
-instance Arrow f => Applicative (F f Function s) where
+instance Arrow f => Applicative (F f EmptyArrow s) where
     pure x = F (arr (const x)) EmptyArrow
     mf <*> mx = F fto EmptyArrow
       where
@@ -230,7 +228,7 @@ instance Arrow f => Applicative (F f Function s) where
 
 -- | We get a Monad instance only if we have no obligation to give a
 --   meaningful opposite arrow.
-instance ArrowApply f => Monad (F f Function s) where
+instance ArrowApply f => Monad (F f EmptyArrow s) where
     return = pure
     mx >>= k = F fto EmptyArrow
       where
