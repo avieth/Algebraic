@@ -19,7 +19,6 @@ library
   exposed-modules:     Data.Algebraic.Product
                      , Data.Algebraic.Index
                      , Data.Algebraic.MapThroughArrows
-                     , Data.Algebraic.FList
                      , Data.Algebraic.Sum
                      , Data.Algebraic.Function
                      , Data.Algebraic.Function.SideChannel
