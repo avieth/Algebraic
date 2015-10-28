@@ -26,7 +26,11 @@ Portability : non-portable (GHC only)
 module Data.Algebraic.Function (
 
       F(..)
-    , ArrowHomomorphism(..)
+    , ArrowHomomorphism
+    , arrowHomomorphism
+    , ArrowHomomorphismTyped(..)
+    , ArrowHomomorphismType(..)
+    , ArrowHomomorphismTypeF
     , relax
     , Total
     , Multi
@@ -47,6 +51,9 @@ module Data.Algebraic.Function (
     , throughTraversable
     , EmptyArrow(..)
     , fcompose
+    , eliminateTerm
+    , introduceTerm
+    , swapTerms
 
     ) where
 
@@ -123,6 +130,10 @@ instance Arrow EmptyArrow where
 --     h (f . g) = h f . h g
 --     h id = id
 --
+--   The first parameter is the domain, second is the codomain.
+--
+--   This class has just one instance. It relies upon ArrowHomomorphismTyped,
+--   which takes an extra parameter so as to prevent overlap problems.
 class
     ( Arrow f
     , Arrow g
@@ -130,11 +141,40 @@ class
   where
     arrowHomomorphism :: forall s t . f s t -> g s t
 
---instance {-# OVERLAPS #-} Arrow a => ArrowHomomorphism a a where
---    arrowHomomorphism = id
+instance
+    ( Arrow f
+    , Arrow g
+    , ArrowHomomorphismTyped (ArrowHomomorphismTypeF f g) f g
+    ) => ArrowHomomorphism f g
+  where
+    arrowHomomorphism = arrowHomomorphismTyped (Proxy :: Proxy (ArrowHomomorphismTypeF f g))
 
-instance {-# OVERLAPS #-} ArrowHomomorphism Surjection Surjection where
-    arrowHomomorphism = id
+-- | We use this datatype and ArrowHomomorphismTypeF to disambiguate
+--   homomorphism instances.
+data ArrowHomomorphismType = AHToBottom | AHFromTop | AHReflexive | AHParticular
+
+-- | This type family picks the homomorphism type. We identify four cases:
+--   1. Homomorphisms to the bottom element (AHToBottom)
+--   2. Homomorphisms from the top element (AHFromTop)
+--   3. Homomorphisms from an element to itself (AHReflexive)
+--   4. Particular homomorphisms (AHParticular)
+--   The first 3 are given generically, and the last one must be given for
+--   each non-bottom, non-top element of the order.
+type family ArrowHomomorphismTypeF f g where
+    ArrowHomomorphismTypeF a EmptyArrow = AHToBottom
+    ArrowHomomorphismTypeF (Kleisli Identity) b = AHFromTop
+    ArrowHomomorphismTypeF a a = AHReflexive
+    ArrowHomomorphismTypeF a b = AHParticular
+
+class
+    ( Arrow f
+    , Arrow g
+    ) => ArrowHomomorphismTyped ty f g
+  where
+    arrowHomomorphismTyped :: Proxy ty -> (forall s t . f s t -> g s t)
+
+instance {-# OVERLAPS #-} Arrow a => ArrowHomomorphismTyped AHReflexive a a where
+    arrowHomomorphismTyped _ = id
 
 -- | Kleisli Identity is the top element.
 --
@@ -144,7 +184,7 @@ instance {-# OVERLAPS #-} ArrowHomomorphism Surjection Surjection where
 --   = arr f
 --
 --     arrowHomomorphism (first f)
---   = Kleisli $ return . runIdentity . runKleisli (first f)
+--   = Kleisli $ return . runIdentity . runKleisli (first f)--   = Kleisli $ \(x, c) -> return (x, c)
 --   = Kleisli $ \(x, c) -> return (x, c)
 --   = first f
 --
@@ -161,22 +201,48 @@ instance {-# OVERLAPS #-} ArrowHomomorphism Surjection Surjection where
 --   = Kleisli $ return . runIdentity . runKleisli (f . g)
 --   = arrowHomomorphism (f . g)
 --
-instance {-# OVERLAPS #-} Arrow a => ArrowHomomorphism (Kleisli Identity) a where
-    arrowHomomorphism kid = arr (runIdentity . runKleisli kid)
+instance {-# OVERLAPS #-} Arrow a => ArrowHomomorphismTyped AHFromTop (Kleisli Identity) a where
+    arrowHomomorphismTyped _ kid = arr (runIdentity . runKleisli kid)
 
--- | EmptyArrow is the bottom element.
-instance {-# OVERLAPS #-} Arrow a => ArrowHomomorphism a EmptyArrow where
-    arrowHomomorphism _ = EmptyArrow
+-- | EmptyArrow is the bottom element. This is obviously a homomorphism.
+instance {-# OVERLAPS #-} Arrow a => ArrowHomomorphismTyped AHToBottom a EmptyArrow where
+    arrowHomomorphismTyped _ _ = EmptyArrow
+
+class
+    ( Arrow g
+    ) => ArrowHomomorphismSurjection g
+  where
+    arrowHomomorphismSurjection :: forall s t . Surjection s t -> g s t
+
+instance
+    (
+    ) => ArrowHomomorphismSurjection Function
+  where
+    arrowHomomorphismSurjection kl = Kleisli $ toList . runKleisli kl
+
+instance {-# OVERLAPS #-}
+    ( ArrowHomomorphismSurjection a
+    ) => ArrowHomomorphismTyped AHParticular Surjection a
+  where
+    arrowHomomorphismTyped _ = arrowHomomorphismSurjection
+
+class
+    ( Arrow g
+    ) => ArrowHomomorphismInjection g
+  where
+    arrowHomomorphismInjection :: forall s t . Injection s t -> g s t
 
 -- | Here we use the natural transformation Maybe ~> []
-instance {-# OVERLAPS #-} ArrowHomomorphism (Kleisli Maybe) (Kleisli []) where
-    arrowHomomorphism kid = Kleisli $ \s -> case runKleisli kid s of
+instance {-# OVERLAPS #-} ArrowHomomorphismInjection (Kleisli []) where
+    arrowHomomorphismInjection kid = Kleisli $ \s -> case runKleisli kid s of
         Just x -> [x]
         Nothing -> []
 
--- | Here we use the natural transformation NonEmpty ~> []
-instance {-# OVERLAPS #-} ArrowHomomorphism (Kleisli NonEmpty) (Kleisli []) where
-    arrowHomomorphism kid = Kleisli $ toList . runKleisli kid
+instance {-# OVERLAPS #-}
+    ( ArrowHomomorphismInjection a
+    ) => ArrowHomomorphismTyped AHParticular Injection a
+  where
+    arrowHomomorphismTyped _ = arrowHomomorphismInjection
 
 relax
     :: ( ArrowHomomorphism f1 f2
