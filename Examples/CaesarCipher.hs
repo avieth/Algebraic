@@ -43,7 +43,7 @@ minus x = opposite (plus x)
 --   where
 --
 --     @
---       decode . encode = id
+--       decode shift . encode shift = id
 --     @
 --
 caesarCipher :: (Group g) => g -> F Total Bijection [g] [g]
