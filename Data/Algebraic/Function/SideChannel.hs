@@ -102,18 +102,17 @@ instance ArrowApply f => Monad (SideChannel monoid f s) where
 instance {-# OVERLAPS #-}
     ( ArrowHomomorphism f g
     , Arrow g
-    ) => ArrowHomomorphism f (SideChannel a g)
+    ) => ArrowHomomorphismTyped AHParticular f (SideChannel a g)
   where
-    arrowHomomorphism f = SideChannel $ first (arrowHomomorphism f)
+    arrowHomomorphismTyped _ f = SideChannel $ first (arrowHomomorphism f)
 
 -- TODO check this one. Is it really a homomorphism?
 instance {-# OVERLAPS #-}
     ( ArrowHomomorphism f g
     , Arrow g
     , Monoid a
-    ) => ArrowHomomorphism (SideChannel a f) g
+    ) => ArrowHomomorphismTyped AHParticular (SideChannel a f) g
   where
-    arrowHomomorphism f = arr fst
-                        . arrowHomomorphism (runSideChannel f)
-                        . arr (\x -> (x, mempty))
-
+    arrowHomomorphismTyped _ f = arr fst
+                               . arrowHomomorphism (runSideChannel f)
+                               . arr (\x -> (x, mempty))
