@@ -9,7 +9,7 @@ surjective, or total, or partial, etc.
 The foundation is this type, from [Data.Algebraic.Function](Data/Algebraic/Function.hs)
 
 ```Haskell
-newtype F g h s t = F {
+data F g h s t = F {
       to :: g s t
     , from :: h t s
     }
@@ -30,7 +30,6 @@ type PartialFunction = F (Kleisli Maybe) (EmptyArrow)
 
 -- Bijections can always be inverted...
 type TotalBijection = F (Kleisli Identity) (Kleisli Identity)
-
 
 -- ... injections can be inverted too, but not everything in the codomain
 -- has a preimage.
@@ -69,25 +68,19 @@ an arrow homomorphism from `y` to `x`. Notice the one in the middle:
 `Kleisli []`. This is just a normal function: every image has 0 or more
 preimages.
 
-This ordering is expressed by the `ArrowHomomorphism` class and its instances,
-and exploited by the function
+Really, we're concerned with the greatest-lower-bounds in this ordering,
+which are captured by the type family `GLB` and the related class
+`WitnessGLB`, instances of which are used to give:
 
 ```Haskell
 fcompose
-    :: ( ArrowHomomorphism g1 (ArrowHomomorphismGreatestLowerBound g1 g2)
-       , ArrowHomomorphism g2 (ArrowHomomorphismGreatestLowerBound g1 g2)
-       , Category (ArrowHomomorphismGreatestLowerBound g1 g2)
-       , ArrowHomomorphism h1 (ArrowHomomorphismGreatestLowerBound h1 h2)
-       , ArrowHomomorphism h2 (ArrowHomomorphismGreatestLowerBound h1 h2)
-       , Category (ArrowHomomorphismGreatestLowerBound h1 h2)
+    :: forall f1 g1 f2 g2 s t u .
+       ( Composable f1 f2
+       , Composable g1 g2
        )
-    => F g2 h2 t u
-    -> F g1 h1 s t
-    -> F (ArrowHomomorphismGreatestLowerBound g1 g2)
-         (ArrowHomomorphismGreatestLowerBound h1 h2)
-         s
-         u
-fcompose left right = relax left . relax right
+    => F f2 g2 u t
+    -> F f1 g1 s u
+    -> F (GLB f2 f1) (GLB g2 g1) s t
 ```
 
 By using `(<.>)` as a replacement for the typical categorical composition
