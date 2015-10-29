@@ -44,6 +44,8 @@ module Data.Algebraic.Function (
     , Function
     , EmptyArrow(..)
     , opposite
+    , ProductTos
+    , ProductFroms
     , ProductF
     , productF
     , SumF
@@ -67,6 +69,13 @@ module Data.Algebraic.Function (
     , homogeneousSumImage
     , HomogeneousSumPreimage
     , homogeneousSumPreimage
+
+    , disassembleProduct
+    , disassembleSum
+    , useBottomOfProduct
+    , useBottomOfSum
+    , reassembleProduct
+    , reassembleSum
 
     ) where
 
@@ -718,6 +727,15 @@ instance {-# OVERLAPS #-}
     swapTerms_ _ _ = reassembleProduct id
                    . useBottomOfProduct (swapTerms_ (Index :: Index (idx1 - 1)) (Index :: Index (idx2 - 1)))
                    . disassembleProduct
+
+-- | Given a product of Fs, get all of the fs, in order.
+type family ProductTos (ps :: *) :: [* -> * -> *] where
+    ProductTos ((F f g s t) :*: rest) = f ': ProductTos rest
+    ProductTos (F f g s t) = '[f]
+
+type family ProductFroms (ps :: *) :: [* -> * -> *] where
+    ProductFroms ((F f g s t) :*: rest) = g ': ProductFroms rest
+    ProductFroms (F f g s t) = '[g]
 
 -- | A product of F's can become an F on products.
 class ProductF product f g s t | product -> f, product -> g, product -> s, product -> t where
