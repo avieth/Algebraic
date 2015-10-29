@@ -48,6 +48,8 @@ module Data.Algebraic.Function (
     , productF
     , SumF
     , sumF
+    , SequenceProduct
+    , sequenceProduct
     , pair
     , pass
     , known
@@ -752,6 +754,25 @@ instance {-# OVERLAPS #-}
     sumF (Product (a, b)) = reassembleSum a
                           . useBottomOfSum (sumF b)
                           . disassembleSum
+
+
+-- | This is a bit like ProductF, but for a product of F's whose domain and
+--   codomain are homogeneous: every term in the product is an endomorphism
+--   and they're all the same type of endomorphism. In this case, we sequence
+--   them all, obtaining an F from a singleton to a singleton.
+class SequenceProduct product f g s | product -> f, product -> g, product -> s where
+    sequenceProduct :: product -> F f g s s
+
+instance {-# OVERLAPS #-} SequenceProduct (F f g s s) f g s where
+    sequenceProduct = id
+
+instance {-# OVERLAPS #-}
+    ( Category f
+    , Category g
+    , SequenceProduct rest f g s
+    ) => SequenceProduct ((F f g s s) :*: rest) f g s
+  where
+    sequenceProduct (Product (a, b)) = a . sequenceProduct b
 
 -- | For any product of (), there is a total bijection to ():
 --

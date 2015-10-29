@@ -22,7 +22,6 @@ import Control.Arrow
 import Control.Category
 import Data.Proxy
 import Data.Algebraic.Function
-import Data.Algebraic.Function.SideChannel
 import Data.Algebraic.Product
 import Data.Algebraic.Sum
 
@@ -36,20 +35,17 @@ instance Stream [t] t where
         _ -> Nothing
     streamPut = (:)
 
-type Parser = SideChannel
-type Printer = SideChannel
-
 anyToken
     :: forall stream token .
        ( Stream stream token )
     => Proxy stream
-    -> F (Printer stream Total) (Parser stream Partial) token ()
+    -> F Total Injection (token, stream) ((), stream)
 anyToken _ = F fto ffrom
   where
-    fto :: Printer stream Total token ()
-    fto = SideChannel (arr (\(token, stream) -> ((), streamPut token stream)))
-    ffrom :: Parser stream Partial () token
-    ffrom = SideChannel (Kleisli (\(_, stream) -> streamTake stream))
+    fto :: Total (token, stream) ((), stream)
+    fto = arr (\(token, stream) -> ((), streamPut token stream))
+    ffrom :: Partial ((), stream) (token, stream)
+    ffrom = Kleisli (\(_, stream) -> streamTake stream)
 
 token
     :: forall stream token .
@@ -58,13 +54,13 @@ token
        )
     => Proxy stream
     -> token
-    -> F (Printer stream Total) (Parser stream Partial) () ()
+    -> F Total Injection ((), stream) ((), stream)
 token _ token = F fto ffrom
   where
-    fto :: Printer stream Total () ()
-    fto = SideChannel (arr (\((), stream) -> ((), streamPut token stream)))
-    ffrom :: Parser stream Partial () ()
-    ffrom = SideChannel . Kleisli $ \(_, str) -> case streamTake str of
+    fto :: Total ((), stream) ((), stream)
+    fto = arr (\((), stream) -> ((), streamPut token stream))
+    ffrom :: Partial ((), stream) ((), stream)
+    ffrom = Kleisli $ \(_, str) -> case streamTake str of
         Just (token', rest) -> if token == token' then Just ((), rest) else Nothing
         _ -> Nothing
 
@@ -75,7 +71,7 @@ string
        )
     => Proxy stream
     -> [token]
-    -> F (Printer stream Total) (Parser stream Injection) () ()
+    -> F Total Injection ((), stream) ((), stream)
 string stream tokens = mconcat (fmap (token stream) tokens)
 
 many
@@ -97,7 +93,7 @@ example1 = token stream '(' `fcompose` string stream "hello" `fcompose` token st
 example2 = productF (example1 .*. example1)
 
 -- Example 3: example 2, but to parse you need only give a single unit.
-example3 = totalBijectionOfUnitProduct `fcompose` example2
+example3 = sequenceProduct (example1 .*. example1)
 
 -- Example 4: print/parse alternatives.
 -- Here we have an ambiguous parser: it'll pick up (hello) or (hello)(hello)
