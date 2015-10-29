@@ -20,8 +20,11 @@ module Examples.PrinterParser where
 import Prelude hiding ((.), id)
 import Control.Arrow
 import Control.Category
+import Data.Proxy
 import Data.Algebraic.Function
 import Data.Algebraic.Function.SideChannel
+import Data.Algebraic.Product
+import Data.Algebraic.Sum
 
 class Stream stream token where
     streamTake :: stream -> Maybe (token, stream)
@@ -39,8 +42,9 @@ type Printer = SideChannel
 anyToken
     :: forall stream token .
        ( Stream stream token )
-    => F (Printer stream Total) (Parser stream Partial) token ()
-anyToken = F fto ffrom
+    => Proxy stream
+    -> F (Printer stream Total) (Parser stream Partial) token ()
+anyToken _ = F fto ffrom
   where
     fto :: Printer stream Total token ()
     fto = SideChannel (arr (\(token, stream) -> ((), streamPut token stream)))
@@ -52,9 +56,10 @@ token
        ( Eq token
        , Stream stream token
        )
-    => token
+    => Proxy stream
+    -> token
     -> F (Printer stream Total) (Parser stream Partial) () ()
-token token = F fto ffrom
+token _ token = F fto ffrom
   where
     fto :: Printer stream Total () ()
     fto = SideChannel (arr (\((), stream) -> ((), streamPut token stream)))
@@ -68,9 +73,10 @@ string
        ( Eq token
        , Stream stream token
        )
-    => [token]
+    => Proxy stream
+    -> [token]
     -> F (Printer stream Total) (Parser stream Injection) () ()
-string tokens = mconcat (fmap token tokens)
+string stream tokens = mconcat (fmap (token stream) tokens)
 
 many
     :: ( ArrowApply f
@@ -79,3 +85,20 @@ many
     => F f g a b
     -> F f g [a] [b]
 many = throughTraversable
+
+-- Example 1: print/parse things sequentially.
+example1 = token stream '(' `fcompose` string stream "hello" `fcompose` token stream ')'
+  where
+    stream :: Proxy String
+    stream = Proxy
+
+-- Example 2: print/parse a product (sequentially parse its components).
+-- We use productF to pull a product of F's into an F of products.
+example2 = productF (example1 .*. example1)
+
+-- Example 3: example 2, but to parse you need only give a single unit.
+example3 = totalBijectionOfUnitProduct `fcompose` example2
+
+-- Example 4: print/parse alternatives.
+-- Here we have an ambiguous parser: it'll pick up (hello) or (hello)(hello)
+example4 = totalSurjectionOfHomogeneousSum `fcompose` sumF (example1 .*. example3)

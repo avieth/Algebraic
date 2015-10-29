@@ -22,6 +22,7 @@ Portability : non-portable (GHC only)
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE FunctionalDependencies #-}
 
 module Data.Algebraic.Function (
 
@@ -31,6 +32,8 @@ module Data.Algebraic.Function (
     , ArrowHomomorphismTyped(..)
     , ArrowHomomorphismType(..)
     , ArrowHomomorphismTypeF
+    , ArrowHomomorphismGreatestLowerBound
+    , ArrowHomomorphismGreatestLowerBoundParticular
     , relax
     , Total
     , Multi
@@ -39,6 +42,7 @@ module Data.Algebraic.Function (
     , Injection
     , Surjection
     , Function
+    , EmptyArrow(..)
     , opposite
     , ProductF
     , productF
@@ -49,11 +53,18 @@ module Data.Algebraic.Function (
     , known
     , forget
     , throughTraversable
-    , EmptyArrow(..)
     , fcompose
     , eliminateTerm
     , introduceTerm
     , swapTerms
+    , TotalBijectionOfUnitProduct
+    , totalBijectionOfUnitProduct
+    , TotalSurjectionOfHomogeneousSum
+    , totalSurjectionOfHomogeneousSum
+    , HomogeneousSumImage
+    , homogeneousSumImage
+    , HomogeneousSumPreimage
+    , homogeneousSumPreimage
 
     ) where
 
@@ -70,6 +81,7 @@ import Data.List.NonEmpty
 import Numeric.Additive.Group
 import Numeric.Additive.Class
 import Data.Algebraic.Index
+import Data.Algebraic.Order
 import Data.Algebraic.Product
 import Data.Algebraic.Sum
 
@@ -252,17 +264,125 @@ relax
     -> F f2 g2 s t
 relax f = F (arrowHomomorphism (to f)) (arrowHomomorphism (from f))
 
-type family ArrowHomomorphismGreatestLowerBound (g :: * -> * -> *) (h :: * -> * -> *) :: * -> * -> *
-type instance ArrowHomomorphismGreatestLowerBound g g = g
-type instance ArrowHomomorphismGreatestLowerBound (Kleisli Identity) g = g
-type instance ArrowHomomorphismGreatestLowerBound g (Kleisli Identity) = g
-type instance ArrowHomomorphismGreatestLowerBound EmptyArrow g = EmptyArrow
-type instance ArrowHomomorphismGreatestLowerBound g EmptyArrow = EmptyArrow
-type instance ArrowHomomorphismGreatestLowerBound (Kleisli Maybe) (Kleisli NonEmpty) = Kleisli []
-type instance ArrowHomomorphismGreatestLowerBound (Kleisli Maybe) (Kleisli []) = Kleisli []
-type instance ArrowHomomorphismGreatestLowerBound (Kleisli []) (Kleisli Maybe) = Kleisli []
-type instance ArrowHomomorphismGreatestLowerBound (Kleisli NonEmpty) (Kleisli []) = Kleisli []
-type instance ArrowHomomorphismGreatestLowerBound (Kleisli []) (Kleisli NonEmpty) = Kleisli []
+-- The greatest lower bound is a commutative thing. We need to compute this:
+--
+--                     Kleisli Identity |Kleisli Maybe   |Kleisli NonEmpty|Kleisli []|...       |EmptyArrow
+--                   +-------------------------------------------------------------------------------------
+--   Kleisli Identity| Kleisli Identity |Kleisli Maybe   |Kleisli NonEmpty|Kleisli []|...       |EmptyArrow
+--   Kleisli Maybe   | Kleisli Maybe    |Kleisli Maybe   |Kleisli []      |Kleisli []|...       |EmptyArrow
+--   Kleisli NonEmpty| Kleisli NonEmpty |Kleisli NonEmpty|Kleisli NonEmpty|Kleisli []|...       |EmptyArrow
+--   Kleisli []      | Kleisli []       |Kleisli []      |Kleisli []      |Kleisli []|...       |EmptyArrow
+--   ...             | ...              |...             |...             |...       |...       |EmptyArrow
+--   EmptyArrow      | EmptyArrow       |EmptyArrow      |EmptyArrow      |EmptyArrow|EmptyArrow|EmptyArrow
+--
+-- The presence of (...) means we need an open type family; we must be able to
+-- add new entries to the lattice. But we must also avoid any type family
+-- overlap. This can be done by giving only the lower-left half of the table
+-- (it's commutative) and giving a type family which indicates which section
+-- of the table we're in:
+--    1. Leftmost column
+--    2. Bottom row
+--    3. Diagonal
+--    4. Lower-left half (excluding diagonal)
+--    5. Upper-right half (excluding diagonal)
+-- One way to do this is to have each type determine a unique natural number,
+-- or a symbol meaning infinity (for the EmptyArrow). This determines the
+-- order of the rows (or columns, but we choose rows). Then we're in the
+-- lower-left whenever the first index is greater than the second index, and
+-- similar index-based rules for the other cases.
+-- We demand particular instances for the lower-left half excluding the
+-- diagonal and the leftmost and bottom rows. That's to say: the n'th
+-- arrow must give its GLB with all of the earlier arrows (n-1)'th, (n-2)'th
+-- excluding the 0'th (Kleisli Identity).
+--
+-- Injective type family use case? I think so! But do we *need* injective
+-- type families? Data families are injective, but we can't use those, because
+-- we need to go to some existing type Nat+Infinity.
+-- Functional dependencies are tempting. Can they help us? Yes, but it's a hack.
+
+type family ArrowGLBOrderT (f :: * -> * -> *)
+
+-- Until we can assert that ArrowGLBOrderT is injective, we use a hack:
+-- demand that every member of the order is an instance of this class, and
+-- let the functional dependency and the class constraint do their work!
+--
+-- With injective type families, we can delete the ArrowGLBOrder class and
+-- its instances.
+class
+    ( ArrowGLBOrderT ty ~ idx
+    ) => ArrowGLBOrder (ty :: * -> * -> *) idx | idx -> ty
+
+type instance ArrowGLBOrderT (Kleisli Identity) = (Finite 0)
+type instance ArrowGLBOrderT (Kleisli Maybe) = (Finite 1)
+type instance ArrowGLBOrderT (Kleisli NonEmpty) = (Finite 2)
+type instance ArrowGLBOrderT (Kleisli []) = (Finite 3)
+type instance ArrowGLBOrderT (EmptyArrow) = (Infinity)
+
+instance ArrowGLBOrder (Kleisli Identity) (Finite 0)
+instance ArrowGLBOrder (Kleisli Maybe) (Finite 1)
+instance ArrowGLBOrder (Kleisli NonEmpty) (Finite 2)
+instance ArrowGLBOrder (Kleisli []) (Finite 3)
+instance ArrowGLBOrder (EmptyArrow) (Infinity)
+
+data CommutativeTableSection = Leftmost | Bottom | Diagonal | LowerLeft | UpperRight
+
+type family CommutativeArrowGLBOrder (f :: * -> * -> *) :: k where
+    CommutativeArrowGLBOrder f = ArrowGLBOrderT f
+
+type family CommutativeTableSectionF (f :: * -> * -> *) (g :: * -> * -> *) :: CommutativeTableSection where
+    CommutativeTableSectionF f g = CommutativeTableSectionFStage1 (ArrowGLBOrderT f) (ArrowGLBOrderT g)
+
+type family CommutativeTableSectionFStage1 (a :: k) (b :: l) :: CommutativeTableSection where
+    CommutativeTableSectionFStage1 a a = Diagonal
+    CommutativeTableSectionFStage1 (Finite 0) b = Leftmost
+    CommutativeTableSectionFStage1 a (Finite 0) = Leftmost
+    CommutativeTableSectionFStage1 Infinity b = Bottom
+    CommutativeTableSectionFStage1 a Infinity = Bottom
+    CommutativeTableSectionFStage1 n m  = CommutativeTableSectionFStage2 (OrderCompare n m)
+
+type family CommutativeTableSectionFStage2 (order :: Ordering) :: CommutativeTableSection where
+    CommutativeTableSectionFStage2 EQ = Diagonal
+    CommutativeTableSectionFStage2 LT = UpperRight
+    CommutativeTableSectionFStage2 GT = LowerLeft
+
+type family ArrowHomomorphismGreatestLowerBound (g :: * -> * -> *) (h :: * -> * -> *) :: * -> * -> * where
+    ArrowHomomorphismGreatestLowerBound g h =
+        ArrowHomomorphismGreatestLowerBoundSectioned (CommutativeTableSectionF g h) g h
+
+type family ArrowHomomorphismGreatestLowerBoundSectioned (section :: CommutativeTableSection) (f :: * -> * -> *) (g :: * -> * -> *) :: * -> * -> * where
+    ArrowHomomorphismGreatestLowerBoundSectioned Diagonal f f = f
+    ArrowHomomorphismGreatestLowerBoundSectioned Leftmost (Kleisli Identity) g = g
+    ArrowHomomorphismGreatestLowerBoundSectioned Leftmost g (Kleisli Identity) = g
+    ArrowHomomorphismGreatestLowerBoundSectioned Bottom (EmptyArrow) g = EmptyArrow
+    ArrowHomomorphismGreatestLowerBoundSectioned Bottom g (EmptyArrow) = EmptyArrow
+    ArrowHomomorphismGreatestLowerBoundSectioned UpperRight f g =
+        ArrowHomomorphismGreatestLowerBoundSectioned LowerLeft g f
+    ArrowHomomorphismGreatestLowerBoundSectioned LowerLeft f g =
+        ArrowHomomorphismGreatestLowerBoundParticular f g
+
+type family ArrowHomomorphismGreatestLowerBoundParticular (g :: * -> * -> *) (h :: * -> * -> *) :: * -> * -> *
+type instance ArrowHomomorphismGreatestLowerBoundParticular (Kleisli NonEmpty) (Kleisli Maybe) = Kleisli []
+type instance ArrowHomomorphismGreatestLowerBoundParticular (Kleisli []) (Kleisli NonEmpty) = Kleisli []
+type instance ArrowHomomorphismGreatestLowerBoundParticular (Kleisli []) (Kleisli Maybe) = Kleisli []
+
+-- I think the problem remains unsolved... Where does the SideChannel go in
+-- the order? Makes no sense, since the SideChannel is parameterized by
+-- another arrow which is presumably in the order.
+--
+-- We want to accomodate order homomorphisms: types h for which
+--
+--    GreatestLowerBound (h f) g
+--  = GreatestLowerBound f (h g)
+--  = GreatestLowerBound (h f) (h g)
+--  = h (GreatestLowerBound f g)
+--
+-- But is it possible? ArrowHomomorphismGreatestLowerBound takes kind
+-- * -> * -> *, not (* -> * -> *) -> * -> * -> *
+--
+-- Perhaps we could upgrade it...
+--
+--   newtype ArrowGLBIdentityHomomorphism f s t = f s t
+--   newtype ArrowSideChannel m f s t = f (s, m) (t, m)
 
 fcompose
     :: ( ArrowHomomorphism g1 (ArrowHomomorphismGreatestLowerBound g1 g2)
@@ -274,7 +394,10 @@ fcompose
        )
     => F g2 h2 t u
     -> F g1 h1 s t
-    -> F (ArrowHomomorphismGreatestLowerBound g1 g2) (ArrowHomomorphismGreatestLowerBound h1 h2) s u
+    -> F (ArrowHomomorphismGreatestLowerBound g1 g2)
+         (ArrowHomomorphismGreatestLowerBound h1 h2)
+         s
+         u
 fcompose left right = relax left . relax right
 
 -- | We get a Functor instance only if we have no obligation to give a
@@ -595,7 +718,7 @@ instance {-# OVERLAPS #-}
                    . disassembleProduct
 
 -- | A product of F's can become an F on products.
-class ProductF product f g s t where
+class ProductF product f g s t | product -> f, product -> g, product -> s, product -> t where
     productF :: product -> F f g s t
 
 instance {-# OVERLAPS #-} ProductF (F f g product t) f g product t where
@@ -613,7 +736,7 @@ instance {-# OVERLAPS #-}
 
 -- | A product of F's can become an F on sums.
 --   This is akin to pattern matching.
-class SumF product f g s t where
+class SumF product f g s t | product -> f, product -> g, product -> s, product -> t where
     sumF :: product -> F f g s t
 
 instance {-# OVERLAPS #-} SumF (F f g summand t) f g summand t where
@@ -629,6 +752,88 @@ instance {-# OVERLAPS #-}
     sumF (Product (a, b)) = reassembleSum a
                           . useBottomOfSum (sumF b)
                           . disassembleSum
+
+-- | For any product of (), there is a total bijection to ():
+--
+--       F Total Bijection ( () x ... x () ) ()
+--
+class TotalBijectionOfUnitProduct product where
+    totalBijectionOfUnitProduct :: F Total Bijection product ()
+
+instance TotalBijectionOfUnitProduct () where
+    totalBijectionOfUnitProduct = F id id
+
+instance
+    ( TotalBijectionOfUnitProduct rest
+    ) => TotalBijectionOfUnitProduct (() :*: rest)
+  where
+    totalBijectionOfUnitProduct = totalBijectionOfUnitProduct . eliminateTerm one
+
+-- | For any homogeneous sum, there is a total surjection onto the type
+--   of the summands:
+--
+--       F Total Surjection ( s + ... + s ) s
+--
+class TotalSurjectionOfHomogeneousSum sum where
+    totalSurjectionOfHomogeneousSum :: F Total Surjection sum (HomogeneousSumType sum)
+
+instance {-# OVERLAPS #-}
+    ( s ~ HomogeneousSumType s
+    ) => TotalSurjectionOfHomogeneousSum s
+  where
+    totalSurjectionOfHomogeneousSum = F id id
+
+instance {-# OVERLAPS #-}
+    ( TotalSurjectionOfHomogeneousSum rest
+    , HomogeneousSumImage (s :+: rest) (HomogeneousSumType (s :+: rest))
+    , HomogeneousSumPreimage (s :+: rest) (HomogeneousSumType (s :+: rest))
+    ) => TotalSurjectionOfHomogeneousSum (s :+: rest)
+  where
+    totalSurjectionOfHomogeneousSum = F fto ffrom
+      where
+        fto :: Total (s :+: rest) s
+        fto = arr homogeneousSumImage
+        ffrom :: Surjection s (s :+: rest)
+        ffrom = Kleisli homogeneousSumPreimage
+
+type family HomogeneousSumType sum :: * where
+    HomogeneousSumType (s :+: rest) = s
+    HomogeneousSumType s = s
+
+-- | Pick a value from a homogeneous sum.
+class HomogeneousSumImage sum image where
+    homogeneousSumImage :: sum -> image
+
+instance {-# OVERLAPS #-} HomogeneousSumImage sum sum where
+    homogeneousSumImage = id
+
+instance {-# OVERLAPS #-}
+    ( HomogeneousSumImage rest s
+    ) => HomogeneousSumImage (s :+: rest) s
+  where
+    homogeneousSumImage (Sum sum) = case sum of
+        Left x -> x
+        Right rest -> homogeneousSumImage rest
+
+-- | Give a value and we can produce the preimage of that value in a function
+--   from a homogeneous sum of the same type as that value. For instance:
+--   
+--       sumPreimage "hello world" :: NonEmpty (String :+: String :+: String)
+--
+--   has three elements: "hello world" in any of the three components.
+class HomogeneousSumPreimage sum image where
+    homogeneousSumPreimage :: image -> NonEmpty sum
+
+instance {-# OVERLAPS #-} HomogeneousSumPreimage sum sum where
+    homogeneousSumPreimage = pure
+
+instance {-# OVERLAPS #-}
+    ( HomogeneousSumPreimage rest s
+    ) => HomogeneousSumPreimage (s :+: rest) s
+  where
+    homogeneousSumPreimage x =
+           pure (Sum (Left x))
+        <> fmap (Sum . Right) (homogeneousSumPreimage x :: NonEmpty rest)
 
 reassembleProduct
     :: forall f g s t any .
@@ -817,4 +1022,3 @@ throughTraversable f = F (fto (to f)) (ffrom (from f))
 
     runArrowMonad :: forall a b . ArrowMonad a b -> a () b
     runArrowMonad (ArrowMonad x) = x
-

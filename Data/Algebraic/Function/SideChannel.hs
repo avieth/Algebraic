@@ -18,6 +18,7 @@ Portability : non-portable (GHC only)
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Data.Algebraic.Function.SideChannel (
 
@@ -116,3 +117,7 @@ instance {-# OVERLAPS #-}
     arrowHomomorphismTyped _ f = arr fst
                                . arrowHomomorphism (runSideChannel f)
                                . arr (\x -> (x, mempty))
+
+--type instance ArrowGLBOrderT (SideChannel a f) = ArrowGLBOrderT f 
+--type instance ArrowHomomorphismGreatestLowerBound (SideChannel a f) g =
+--    SideChannel a (ArrowHomomorphismGreatestLowerBound f g)
