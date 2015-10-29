@@ -21,7 +21,6 @@ library
                      , Data.Algebraic.MapThroughArrows
                      , Data.Algebraic.Sum
                      , Data.Algebraic.Function
-                     , Data.Algebraic.Function.SideChannel
 
   -- other-modules:       
   other-extensions:    AutoDeriveTypeable

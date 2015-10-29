@@ -22,19 +22,20 @@ Portability : non-portable (GHC only)
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE FunctionalDependencies #-}
 
 module Data.Algebraic.Function (
 
       F(..)
-    , ArrowHomomorphism
-    , arrowHomomorphism
-    , ArrowHomomorphismTyped(..)
-    , ArrowHomomorphismType(..)
-    , ArrowHomomorphismTypeF
-    , ArrowHomomorphismGreatestLowerBound
-    , ArrowHomomorphismGreatestLowerBoundParticular
-    , relax
+    , GLB
+    , GLBFold
+    , WitnessGLB
+    , witnessGLB
+    , Composable
+    , fcompose
+    , (<.>)
     , Total
     , Multi
     , Partial
@@ -57,7 +58,6 @@ module Data.Algebraic.Function (
     , known
     , forget
     , throughTraversable
-    , fcompose
     , eliminateTerm
     , introduceTerm
     , swapTerms
@@ -146,270 +146,186 @@ instance Arrow EmptyArrow where
     arr _ = EmptyArrow
     first _ = EmptyArrow
 
--- | Must really be a homomorphism of arrows:
+-- | The greatest lower bound is a commutative thing. We present this:
 --
---     h (arr f) = arr f
---     h (first f) = first f
---     h (f . g) = h f . h g
---     h id = id
+--                     Kleisli Identity |Kleisli Maybe   |Kleisli NonEmpty|Kleisli []|EmptyArrow
+--                   +--------------------------------------------------------------------------
+--   Kleisli Identity| Kleisli Identity |Kleisli Maybe   |Kleisli NonEmpty|Kleisli []|EmptyArrow
+--   Kleisli Maybe   | Kleisli Maybe    |Kleisli Maybe   |Kleisli []      |Kleisli []|EmptyArrow
+--   Kleisli NonEmpty| Kleisli NonEmpty |Kleisli NonEmpty|Kleisli NonEmpty|Kleisli []|EmptyArrow
+--   Kleisli []      | Kleisli []       |Kleisli []      |Kleisli []      |Kleisli []|EmptyArrow
+--   EmptyArrow      | EmptyArrow       |EmptyArrow      |EmptyArrow      |EmptyArrow|EmptyArrow
 --
---   The first parameter is the domain, second is the codomain.
---
---   This class has just one instance. It relies upon ArrowHomomorphismTyped,
---   which takes an extra parameter so as to prevent overlap problems.
-class
-    ( Arrow f
-    , Arrow g
-    ) => ArrowHomomorphism f g
-  where
-    arrowHomomorphism :: forall s t . f s t -> g s t
+type family GLB (h :: * -> * -> *) (f :: * -> * -> *) :: * -> * -> * where
+    GLB Bijection f = f
+    GLB f Bijection = f
+    GLB EmptyArrow f = EmptyArrow
+    GLB f EmptyArrow = EmptyArrow
+    GLB Injection Surjection = Function
+    GLB Surjection Injection = Function
+    GLB Function Injection = Function
+    GLB Injection Function = Function
+    GLB Function Surjection = Function
+    GLB Surjection Function = Function
+    GLB f f = f
+
+-- | Fold a list of types using GLB.
+type family GLBFold (hs :: [* -> * -> *]) :: * -> * -> * where
+    GLBFold '[] = Bijection
+    GLBFold (h ': hs) = GLB h (GLBFold hs)
+
+-- | Proof of the GLB type family clauses.
+class WitnessGLB h g where
+    witnessGLB :: forall s t . Proxy g -> h s t -> (GLB h g) s t
 
 instance
+    ( WitnessGLBDisambiguated (GLBDisambiguator h g) h g
+    ) => WitnessGLB h g
+  where
+    witnessGLB proxyG = witnessGLBDisambiguated (Proxy :: Proxy (GLBDisambiguator h g)) proxyG
+
+type family GLBDisambiguator (h :: * -> * -> *) (g :: * -> * -> *) :: GLBDisambiguatorT where
+    GLBDisambiguator Bijection f = BijectionLeft
+    GLBDisambiguator f Bijection = BijectionRight
+    GLBDisambiguator EmptyArrow f = EmptyLeft
+    GLBDisambiguator f EmptyArrow = EmptyRight
+    GLBDisambiguator f f = Same
+    GLBDisambiguator f g = Known
+
+data GLBDisambiguatorT where
+    BijectionLeft :: GLBDisambiguatorT
+    BijectionRight :: GLBDisambiguatorT
+    EmptyLeft :: GLBDisambiguatorT
+    EmptyRight :: GLBDisambiguatorT
+    Same :: GLBDisambiguatorT
+    Known :: GLBDisambiguatorT
+
+-- | Like WitnessGLB but with an extra parameter to prevent overlap.
+class WitnessGLBDisambiguated d h g where
+    witnessGLBDisambiguated :: Proxy d -> Proxy g -> h s t -> (GLB h g) s t
+
+instance {-# OVERLAPS #-}
+    ( GLB f f ~ f
+    ) => WitnessGLBDisambiguated Same f f
+  where
+    witnessGLBDisambiguated _ _ = id
+
+instance {-# OVERLAPS #-}
     ( Arrow f
-    , Arrow g
-    , ArrowHomomorphismTyped (ArrowHomomorphismTypeF f g) f g
-    ) => ArrowHomomorphism f g
+    ) => WitnessGLBDisambiguated BijectionLeft Bijection f
   where
-    arrowHomomorphism = arrowHomomorphismTyped (Proxy :: Proxy (ArrowHomomorphismTypeF f g))
+    witnessGLBDisambiguated _ _ = transBijection
 
--- | We use this datatype and ArrowHomomorphismTypeF to disambiguate
---   homomorphism instances.
-data ArrowHomomorphismType = AHToBottom | AHFromTop | AHReflexive | AHParticular
-
--- | This type family picks the homomorphism type. We identify four cases:
---   1. Homomorphisms to the bottom element (AHToBottom)
---   2. Homomorphisms from the top element (AHFromTop)
---   3. Homomorphisms from an element to itself (AHReflexive)
---   4. Particular homomorphisms (AHParticular)
---   The first 3 are given generically, and the last one must be given for
---   each non-bottom, non-top element of the order.
-type family ArrowHomomorphismTypeF f g where
-    ArrowHomomorphismTypeF a EmptyArrow = AHToBottom
-    ArrowHomomorphismTypeF (Kleisli Identity) b = AHFromTop
-    ArrowHomomorphismTypeF a a = AHReflexive
-    ArrowHomomorphismTypeF a b = AHParticular
-
-class
-    ( Arrow f
-    , Arrow g
-    ) => ArrowHomomorphismTyped ty f g
+instance {-# OVERLAPS #-}
+    (
+    ) => WitnessGLBDisambiguated BijectionRight f Bijection
   where
-    arrowHomomorphismTyped :: Proxy ty -> (forall s t . f s t -> g s t)
+    witnessGLBDisambiguated _ _ = id
 
-instance {-# OVERLAPS #-} Arrow a => ArrowHomomorphismTyped AHReflexive a a where
-    arrowHomomorphismTyped _ = id
-
--- | Kleisli Identity is the top element.
---
---     arrowHomomorphism (arr f)
---   = Kleisli $ return . runIdentity . runKleisli (arr f)
---   = Kleisli $ return
---   = arr f
---
---     arrowHomomorphism (first f)
---   = Kleisli $ return . runIdentity . runKleisli (first f)--   = Kleisli $ \(x, c) -> return (x, c)
---   = Kleisli $ \(x, c) -> return (x, c)
---   = first f
---
---     arrowHomomorphism id
---   = Kleisli $ return . runIdentity . runKleisli id
---   = Kleisli $ return
---   = id
---
---     arrowHomomorphism f . arrowHomomorphism g
---   = (Kleisli $ return . runIdentity . runKleisli f) . (Kleisli $ return . runIdentity . runKleisli g)
---   = Kleisli $ \x -> return (runIdentity (runKleisli g x)) >>= \y -> return (runIdentity (runKleisli f y))
---   = Kleisli $ \x -> \y -> return (runIdentity (runKleisli f (runIdentity (runKleisli g x))))
---   = ???
---   = Kleisli $ return . runIdentity . runKleisli (f . g)
---   = arrowHomomorphism (f . g)
---
-instance {-# OVERLAPS #-} Arrow a => ArrowHomomorphismTyped AHFromTop (Kleisli Identity) a where
-    arrowHomomorphismTyped _ kid = arr (runIdentity . runKleisli kid)
-
--- | EmptyArrow is the bottom element. This is obviously a homomorphism.
-instance {-# OVERLAPS #-} Arrow a => ArrowHomomorphismTyped AHToBottom a EmptyArrow where
-    arrowHomomorphismTyped _ _ = EmptyArrow
-
-class
-    ( Arrow g
-    ) => ArrowHomomorphismSurjection g
+instance {-# OVERLAPS #-}
+    (
+    ) => WitnessGLBDisambiguated EmptyLeft EmptyArrow f
   where
-    arrowHomomorphismSurjection :: forall s t . Surjection s t -> g s t
+    witnessGLBDisambiguated _ _ = transEmpty
 
 instance
     (
-    ) => ArrowHomomorphismSurjection Function
+    ) => WitnessGLBDisambiguated EmptyRight f EmptyArrow
   where
-    arrowHomomorphismSurjection kl = Kleisli $ toList . runKleisli kl
+    witnessGLBDisambiguated _ _ = transEmpty
 
-instance {-# OVERLAPS #-}
-    ( ArrowHomomorphismSurjection a
-    ) => ArrowHomomorphismTyped AHParticular Surjection a
+instance
+    (
+    ) => WitnessGLBDisambiguated Known Injection Surjection
   where
-    arrowHomomorphismTyped _ = arrowHomomorphismSurjection
+    witnessGLBDisambiguated _ _ = transInjectionFunction
 
-class
-    ( Arrow g
-    ) => ArrowHomomorphismInjection g
+instance
+    (
+    ) => WitnessGLBDisambiguated Known Surjection Injection
   where
-    arrowHomomorphismInjection :: forall s t . Injection s t -> g s t
+    witnessGLBDisambiguated _ _ = transSurjectionFunction
 
--- | Here we use the natural transformation Maybe ~> []
-instance {-# OVERLAPS #-} ArrowHomomorphismInjection (Kleisli []) where
-    arrowHomomorphismInjection kid = Kleisli $ \s -> case runKleisli kid s of
-        Just x -> [x]
-        Nothing -> []
-
-instance {-# OVERLAPS #-}
-    ( ArrowHomomorphismInjection a
-    ) => ArrowHomomorphismTyped AHParticular Injection a
+instance
+    (
+    ) => WitnessGLBDisambiguated Known Function Injection
   where
-    arrowHomomorphismTyped _ = arrowHomomorphismInjection
+    witnessGLBDisambiguated _ _ = id
 
-relax
-    :: ( ArrowHomomorphism f1 f2
-       , ArrowHomomorphism g1 g2
-       )
-    => F f1 g1 s t
-    -> F f2 g2 s t
-relax f = F (arrowHomomorphism (to f)) (arrowHomomorphism (from f))
+instance
+    (
+    ) => WitnessGLBDisambiguated Known Injection Function
+  where
+    witnessGLBDisambiguated _ _ = transInjectionFunction
 
--- The greatest lower bound is a commutative thing. We need to compute this:
---
---                     Kleisli Identity |Kleisli Maybe   |Kleisli NonEmpty|Kleisli []|...       |EmptyArrow
---                   +-------------------------------------------------------------------------------------
---   Kleisli Identity| Kleisli Identity |Kleisli Maybe   |Kleisli NonEmpty|Kleisli []|...       |EmptyArrow
---   Kleisli Maybe   | Kleisli Maybe    |Kleisli Maybe   |Kleisli []      |Kleisli []|...       |EmptyArrow
---   Kleisli NonEmpty| Kleisli NonEmpty |Kleisli NonEmpty|Kleisli NonEmpty|Kleisli []|...       |EmptyArrow
---   Kleisli []      | Kleisli []       |Kleisli []      |Kleisli []      |Kleisli []|...       |EmptyArrow
---   ...             | ...              |...             |...             |...       |...       |EmptyArrow
---   EmptyArrow      | EmptyArrow       |EmptyArrow      |EmptyArrow      |EmptyArrow|EmptyArrow|EmptyArrow
---
--- The presence of (...) means we need an open type family; we must be able to
--- add new entries to the lattice. But we must also avoid any type family
--- overlap. This can be done by giving only the lower-left half of the table
--- (it's commutative) and giving a type family which indicates which section
--- of the table we're in:
---    1. Leftmost column
---    2. Bottom row
---    3. Diagonal
---    4. Lower-left half (excluding diagonal)
---    5. Upper-right half (excluding diagonal)
--- One way to do this is to have each type determine a unique natural number,
--- or a symbol meaning infinity (for the EmptyArrow). This determines the
--- order of the rows (or columns, but we choose rows). Then we're in the
--- lower-left whenever the first index is greater than the second index, and
--- similar index-based rules for the other cases.
--- We demand particular instances for the lower-left half excluding the
--- diagonal and the leftmost and bottom rows. That's to say: the n'th
--- arrow must give its GLB with all of the earlier arrows (n-1)'th, (n-2)'th
--- excluding the 0'th (Kleisli Identity).
---
--- Injective type family use case? I think so! But do we *need* injective
--- type families? Data families are injective, but we can't use those, because
--- we need to go to some existing type Nat+Infinity.
--- Functional dependencies are tempting. Can they help us? Yes, but it's a hack.
+instance
+    (
+    ) => WitnessGLBDisambiguated Known Function Surjection
+  where
+    witnessGLBDisambiguated _ _ = id
 
-type family ArrowGLBOrderT (f :: * -> * -> *)
+instance
+    (
+    ) => WitnessGLBDisambiguated Known Surjection Function
+  where
+    witnessGLBDisambiguated _ _ = transSurjectionFunction
 
--- Until we can assert that ArrowGLBOrderT is injective, we use a hack:
--- demand that every member of the order is an instance of this class, and
--- let the functional dependency and the class constraint do their work!
---
--- With injective type families, we can delete the ArrowGLBOrder class and
--- its instances.
-class
-    ( ArrowGLBOrderT ty ~ idx
-    ) => ArrowGLBOrder (ty :: * -> * -> *) idx | idx -> ty
+transBijection :: Arrow f => Bijection s t -> f s t
+transBijection kl = arr (runIdentity . runKleisli kl)
 
-type instance ArrowGLBOrderT (Kleisli Identity) = (Finite 0)
-type instance ArrowGLBOrderT (Kleisli Maybe) = (Finite 1)
-type instance ArrowGLBOrderT (Kleisli NonEmpty) = (Finite 2)
-type instance ArrowGLBOrderT (Kleisli []) = (Finite 3)
-type instance ArrowGLBOrderT (EmptyArrow) = (Infinity)
+transEmpty :: f s t -> EmptyArrow s t
+transEmpty = const EmptyArrow
 
-instance ArrowGLBOrder (Kleisli Identity) (Finite 0)
-instance ArrowGLBOrder (Kleisli Maybe) (Finite 1)
-instance ArrowGLBOrder (Kleisli NonEmpty) (Finite 2)
-instance ArrowGLBOrder (Kleisli []) (Finite 3)
-instance ArrowGLBOrder (EmptyArrow) (Infinity)
+transInjectionFunction :: Injection s t -> Function s t
+transInjectionFunction kl = Kleisli $ \s -> case runKleisli kl s of
+    Just x -> [x]
+    Nothing -> []
 
-data CommutativeTableSection = Leftmost | Bottom | Diagonal | LowerLeft | UpperRight
+transSurjectionFunction :: Surjection s t -> Function s t
+transSurjectionFunction kl = Kleisli $ toList . runKleisli kl
 
-type family CommutativeArrowGLBOrder (f :: * -> * -> *) :: k where
-    CommutativeArrowGLBOrder f = ArrowGLBOrderT f
-
-type family CommutativeTableSectionF (f :: * -> * -> *) (g :: * -> * -> *) :: CommutativeTableSection where
-    CommutativeTableSectionF f g = CommutativeTableSectionFStage1 (ArrowGLBOrderT f) (ArrowGLBOrderT g)
-
-type family CommutativeTableSectionFStage1 (a :: k) (b :: l) :: CommutativeTableSection where
-    CommutativeTableSectionFStage1 a a = Diagonal
-    CommutativeTableSectionFStage1 (Finite 0) b = Leftmost
-    CommutativeTableSectionFStage1 a (Finite 0) = Leftmost
-    CommutativeTableSectionFStage1 Infinity b = Bottom
-    CommutativeTableSectionFStage1 a Infinity = Bottom
-    CommutativeTableSectionFStage1 n m  = CommutativeTableSectionFStage2 (OrderCompare n m)
-
-type family CommutativeTableSectionFStage2 (order :: Ordering) :: CommutativeTableSection where
-    CommutativeTableSectionFStage2 EQ = Diagonal
-    CommutativeTableSectionFStage2 LT = UpperRight
-    CommutativeTableSectionFStage2 GT = LowerLeft
-
-type family ArrowHomomorphismGreatestLowerBound (g :: * -> * -> *) (h :: * -> * -> *) :: * -> * -> * where
-    ArrowHomomorphismGreatestLowerBound g h =
-        ArrowHomomorphismGreatestLowerBoundSectioned (CommutativeTableSectionF g h) g h
-
-type family ArrowHomomorphismGreatestLowerBoundSectioned (section :: CommutativeTableSection) (f :: * -> * -> *) (g :: * -> * -> *) :: * -> * -> * where
-    ArrowHomomorphismGreatestLowerBoundSectioned Diagonal f f = f
-    ArrowHomomorphismGreatestLowerBoundSectioned Leftmost (Kleisli Identity) g = g
-    ArrowHomomorphismGreatestLowerBoundSectioned Leftmost g (Kleisli Identity) = g
-    ArrowHomomorphismGreatestLowerBoundSectioned Bottom (EmptyArrow) g = EmptyArrow
-    ArrowHomomorphismGreatestLowerBoundSectioned Bottom g (EmptyArrow) = EmptyArrow
-    ArrowHomomorphismGreatestLowerBoundSectioned UpperRight f g =
-        ArrowHomomorphismGreatestLowerBoundSectioned LowerLeft g f
-    ArrowHomomorphismGreatestLowerBoundSectioned LowerLeft f g =
-        ArrowHomomorphismGreatestLowerBoundParticular f g
-
-type family ArrowHomomorphismGreatestLowerBoundParticular (g :: * -> * -> *) (h :: * -> * -> *) :: * -> * -> *
-type instance ArrowHomomorphismGreatestLowerBoundParticular (Kleisli NonEmpty) (Kleisli Maybe) = Kleisli []
-type instance ArrowHomomorphismGreatestLowerBoundParticular (Kleisli []) (Kleisli NonEmpty) = Kleisli []
-type instance ArrowHomomorphismGreatestLowerBoundParticular (Kleisli []) (Kleisli Maybe) = Kleisli []
-
--- I think the problem remains unsolved... Where does the SideChannel go in
--- the order? Makes no sense, since the SideChannel is parameterized by
--- another arrow which is presumably in the order.
---
--- We want to accomodate order homomorphisms: types h for which
---
---    GreatestLowerBound (h f) g
---  = GreatestLowerBound f (h g)
---  = GreatestLowerBound (h f) (h g)
---  = h (GreatestLowerBound f g)
---
--- But is it possible? ArrowHomomorphismGreatestLowerBound takes kind
--- * -> * -> *, not (* -> * -> *) -> * -> * -> *
---
--- Perhaps we could upgrade it...
---
---   newtype ArrowGLBIdentityHomomorphism f s t = f s t
---   newtype ArrowSideChannel m f s t = f (s, m) (t, m)
+-- What a nightmare.
+type Composable f1 f2 = (
+      WitnessGLB f1 (GLB f2 f1)
+    , WitnessGLB f2 (GLB f1 f2)
+    , WitnessGLB f2 (GLB f2 f1)
+    , WitnessGLB f1 (GLB f1 f2)
+    , WitnessGLB f1 (GLB f2 (GLB f1 f2))
+    , WitnessGLB f2 (GLB f1 (GLB f2 f1))
+    , GLB f1 (GLB f2 f1) ~ GLB f2 f1
+    , GLB f2 (GLB f1 (GLB f2 f1)) ~ GLB f1 (GLB f2 f1)
+    , GLB f1 (GLB f2 (GLB f1 f2)) ~ GLB f2 (GLB f1 f2)
+    , GLB f1 f2 ~ GLB f1 (GLB f2 (GLB f1 f2))
+    , Category (GLB f2 (GLB f1 (GLB f2 f1)))
+    , Category (GLB f1 f2)
+    )
 
 fcompose
-    :: ( ArrowHomomorphism g1 (ArrowHomomorphismGreatestLowerBound g1 g2)
-       , ArrowHomomorphism g2 (ArrowHomomorphismGreatestLowerBound g1 g2)
-       , Category (ArrowHomomorphismGreatestLowerBound g1 g2)
-       , ArrowHomomorphism h1 (ArrowHomomorphismGreatestLowerBound h1 h2)
-       , ArrowHomomorphism h2 (ArrowHomomorphismGreatestLowerBound h1 h2)
-       , Category (ArrowHomomorphismGreatestLowerBound h1 h2)
+    :: forall f1 g1 f2 g2 s t u .
+       ( Composable f1 f2
+       , Composable g1 g2
        )
-    => F g2 h2 t u
-    -> F g1 h1 s t
-    -> F (ArrowHomomorphismGreatestLowerBound g1 g2)
-         (ArrowHomomorphismGreatestLowerBound h1 h2)
-         s
-         u
-fcompose left right = relax left . relax right
+    => F f2 g2 u t
+    -> F f1 g1 s u
+    -> F (GLB f2 f1) (GLB g2 g1) s t
+fcompose left right = left' . right'
+  where
+    left' :: F (GLB f2 f1) (GLB g2 g1) u t
+    left' = F (witnessGLB (Proxy :: Proxy (GLB f2 f1)) (to left))
+              (witnessGLB (Proxy :: Proxy (GLB g2 g1)) (from left))
+    right' :: F (GLB f2 f1) (GLB g2 g1) s u
+    right' = F (witnessGLB (Proxy :: Proxy (GLB f2 f1)) (to right))
+               (witnessGLB (Proxy :: Proxy (GLB g2 g1)) (from right))
+(<.>)
+    :: forall f1 g1 f2 g2 s t u .
+       ( Composable f1 f2
+       , Composable g1 g2
+       )
+    => F f2 g2 u t
+    -> F f1 g1 s u
+    -> F (GLB f2 f1) (GLB g2 g1) s t
+(<.>) = fcompose
+infixr 9 <.>
 
 -- | We get a Functor instance only if we have no obligation to give a
 --   meaningful opposite arrow.

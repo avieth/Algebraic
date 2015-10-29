@@ -27,7 +27,6 @@ import Control.Arrow
 import Control.Category
 import Data.Proxy
 import Data.Algebraic.Function
-import Data.Algebraic.Function.GLB
 import Data.Algebraic.Product
 import Data.Algebraic.Sum
 
@@ -88,28 +87,37 @@ many
     -> F f g [a] [b]
 many = throughTraversable
 
--- Example 1: print/parse things sequentially.
-example1 = token stream '(' `fcompose` string stream "hello" `fcompose` token stream ')'
+-- Example 1: to print/parse things sequentially, we use F composition.
+-- We choose the <.> operator because, unlike the typical category (.),
+-- this one works even for disparate parameters. So, for instance, we
+-- can compose a total bijection with a partial surjection (and the result
+-- will be a partial surjection).
+example1 = token stream '(' <.> string stream "hello" <.> token stream ')'
   where
     stream :: Proxy String
     stream = Proxy
 
--- Example 2: print/parse a product (sequentially parse its components).
--- We use productF to pull a product of F's into an F of products.
-example2 = productF (example1 .*. example1)
+-- Example 2: another way to print/parse sequentially is by giving a product of
+-- printer/parsers.
+example2 = parserPrinterOfProduct (example1 .*. example1)
 
--- Example 3: example 2, but to parse you need only give a single unit.
-example3 = sequenceProduct (example1 .*. example1)
-
-example4 = parserPrinterOfSum (example1 .*. example1)
+-- Example 3: we can also print/parse sums. Notice that we still give a
+-- *product* of parsers.
+example3 = parserPrinterOfSum (example1 .*. example1)
 
 -- Try parsing "(hello"). Notice how you get two cases!
-parseEx4 :: String -> [(() :+: (), String)]
-parseEx4 str = runKleisli (from example4) ((), str)
+parseEx3 :: String -> [(() :+: (), String)]
+parseEx3 str = runKleisli (from example3) ((), str)
 
-example5 = parserPrinterOfProduct (example1 .*. example1)
-
-example6 = parserPrinterOfSum (example1 .*. example5)
+-- Example 4: a combination of sums and products. Check it's type:
+--
+--   F Total Function (() :+: (() :*: ()), String) ((), String)
+--
+-- That means you can print any term of that input type, but when you
+-- parse, you get 0 or more values. And in fact, sometimes you actually get
+-- more than 1, since example1 and example2 give overlapping parsers.
+-- Try parsing "(hello)(hello)" and check the result.
+example4 = parserPrinterOfSum (example1 .*. example2)
 
 
 -- | Product of printer/parsers to printer/parser of product.

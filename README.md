@@ -90,7 +90,7 @@ fcompose
 fcompose left right = relax left . relax right
 ```
 
-By using `fcompose` as a replacement for the typical categorical composition
+By using `(<.>)` as a replacement for the typical categorical composition
 `(.)`, we allow GHC to infer the types of our functions.
 
 ```Haskell
@@ -124,5 +124,10 @@ boolNot = F (arr not)
 --   preimages :: Bool -> NonEmpty Int
 --   preimages = runKleisli (from example)
 -- 
-example = boolNot `fcompose` isPositive `fcompose` plus 5
+example = boolNot <.> isPositive <.> plus 5
 ```
+
+Constructing functions
+======================
+
+TODO
