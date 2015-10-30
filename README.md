@@ -84,6 +84,8 @@ fcompose
     => F f2 g2 u t
     -> F f1 g1 s u
     -> F (GLB f2 f1) (GLB g2 g1) s t
+
+(<.>) = fcompose
 ```
 
 By using `(<.>)` as a replacement for the typical categorical composition
