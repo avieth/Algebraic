@@ -120,6 +120,10 @@ boolNot = F (arr not)
 example = boolNot <.> isPositive <.> plus 5
 ```
 
+For a simple example of use, check out [CaesarCipher.hs](Examples/CaesarCipher.hs)
+in which the Caesar Cipher is defined, for any group, in such a way that its
+encode and decode functions are given simultaneously.
+
 Constructing functions
 ======================
 
@@ -132,6 +136,7 @@ componentwise. That's to say, if you give a product of `F`s, then you have
 an `F` on a corresponding product or sum:
 
 ```Haskell
+-- GLBFold takes the greatest-lower-bound of 0 or more things.
 productF :: (F f1 g1 s1 t1 :*: ... :*: F fn gn sn tn)
          -> F (GLBFold [f1,..,fn])
               (GLBFold [g1,..,gn])
@@ -192,3 +197,24 @@ respectively, is exactly what we expect. It forces an `F` from a bigger sum to
 a smaller one to be partial (because a function from `t /= Void` to `Void`
 must be partial), and an `F` from a bigger product to a smaller one to not be
 injective.
+
+See the [Tuple](Examples/Tuple.hs) example for elementary use of
+`productF` and `eliminateTerm` to create tuple projections.
+
+
+
+Invertible printers (parsers included)
+======================================
+
+Suppose we want to print a datatype. This is a function of type `t -> String`,
+or some other string-like thing. Lessons learnt from exisiting parser libraries
+show us that a parser is not `String -> t`, but `String -> (t, String)`, where
+the tail of the string which was not used to parser `t` is fed to the output.
+So if we want an invertible printer, we'd better have something more like
+`(t, String) -> String`. But now we have trouble composing printers. We
+have `printer2 <.> printer1` only when `printer2 :: String -> (u, String)`.
+If we make the type symmetrical, things are much cleaner. So, we choose
+`F g h (s, String) (t, String)`
+as the type for a printer/parser.
+
+Be sure to mention how, when we parse a sum, we get a list of results.
