@@ -775,42 +775,82 @@ type family ProductFroms (ps :: *) :: [* -> * -> *] where
     ProductFroms ((F f g s t) :*: rest) = g ': ProductFroms rest
     ProductFroms (F f g s t) = '[g]
 
--- | A product of F's can become an F on products.
-class ProductF product f g s t | product -> f, product -> g, product -> s, product -> t where
-    productF :: product -> F f g s t
+class ProductF product s t | product -> s, product -> t where
+    productF
+        :: product
+        -> F (GLBFold (ProductTos product))
+             (GLBFold (ProductFroms product))
+             s
+             t
 
-instance {-# OVERLAPS #-} ProductF (F f g product t) f g product t where
+instance {-# OVERLAPS #-} ProductF (F f g s t) s t where
     productF = id
 
 instance {-# OVERLAPS #-}
     ( Arrow f
     , Arrow g
-    , ProductF frest f g rest trest
-    ) => ProductF ((F f g s t) :*: frest) f g (s :*: rest) (t :*: trest)
+    , Arrow (GLBFold (ProductTos rest))
+    , Arrow (GLBFold (ProductFroms rest))
+    -- These are here so we can do
+    --   useBottomOfProduct recursive <.> disassemble
+    , Composable Total (GLBFold (ProductTos rest))
+    , Composable Bijection (GLBFold (ProductFroms rest))
+    -- These are here so we can do
+    --   reassemble <.> useBottomOfProduct recursive <.> disassemble
+    , Composable f (GLBFold (ProductTos rest))
+    , Composable g (GLBFold (ProductFroms rest))
+    , ProductF rest srest trest
+    ) => ProductF ((F f g s t) :*: rest) (s :*: srest) (t :*: trest)
   where
-    productF (Product (a, b)) = reassembleProduct a
-                              . useBottomOfProduct (productF b)
-                              . disassembleProduct
+    productF (Product (a, b)) =
+        let recursive :: F (GLBFold (ProductTos rest))
+                           (GLBFold (ProductFroms rest))
+                           srest
+                           trest
+            recursive = productF b
+            disassemble :: F Total Bijection (s :*: srest) (s, srest)
+            disassemble = disassembleProduct
+            reassemble :: F f g (s, trest) (t :*: trest)
+            reassemble = reassembleProduct a
+        in  reassemble <.> useBottomOfProduct recursive <.> disassemble
 
 -- | A product of F's can become an F on sums.
 --   This is akin to pattern matching.
-class SumF product f g s t | product -> f, product -> g, product -> s, product -> t where
-    sumF :: product -> F f g s t
+class SumF product s t | product -> s, product -> t where
+    sumF
+        :: product
+        -> F (GLBFold (ProductTos product))
+             (GLBFold (ProductFroms product))
+             s
+             t
 
-instance {-# OVERLAPS #-} SumF (F f g summand t) f g summand t where
+instance {-# OVERLAPS #-} SumF (F f g s t) s t where
     sumF = id
 
 instance {-# OVERLAPS #-}
     ( ArrowChoice f
     , ArrowChoice g
-    , SumF frest f g srest trest
-    ) => SumF ((F f g s t) :*: frest) f g (s :+: srest) (t :+: trest)
+    , ArrowChoice (GLBFold (ProductTos rest))
+    , ArrowChoice (GLBFold (ProductFroms rest))
+    , Composable Total (GLBFold (ProductTos rest))
+    , Composable Bijection (GLBFold (ProductFroms rest))
+    , Composable f (GLBFold (ProductTos rest))
+    , Composable g (GLBFold (ProductFroms rest))
+    , SumF rest srest trest
+    ) => SumF ((F f g s t) :*: rest) (s :+: srest) (t :+: trest)
   where
     -- Notice the symmetry to the definition of productF
-    sumF (Product (a, b)) = reassembleSum a
-                          . useBottomOfSum (sumF b)
-                          . disassembleSum
-
+    sumF (Product (a, b)) =
+        let recursive :: F (GLBFold (ProductTos rest))
+                           (GLBFold (ProductFroms rest))
+                           srest
+                           trest
+            recursive = sumF b
+            disassemble :: F Total Bijection (s :+: srest) (Either s srest)
+            disassemble = disassembleSum
+            reassemble :: F f g (Either s trest) (t :+: trest)
+            reassemble = reassembleSum a
+        in  reassemble <.> useBottomOfSum recursive <.> disassemble
 
 -- | This is a bit like ProductF, but for a product of F's whose domain and
 --   codomain are homogeneous: every term in the product is an endomorphism
