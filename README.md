@@ -196,13 +196,18 @@ The fact that we must reach `()` or `Void` in order to shrink a product or sum,
 respectively, is exactly what we expect. It forces an `F` from a bigger sum to
 a smaller one to be partial (because a function from `t /= Void` to `Void`
 must be partial), and an `F` from a bigger product to a smaller one to not be
-injective.
+injective. Similar story for the other direction: to make an `F` from a smaller
+product or sum to a bigger one, you start by introducing a `()` or a
+`Void`. You can always have a total function to a bigger sum--just never
+choose any of the new summands--and this comes from the fact that there is
+a total function from `Void` to anything. However, this function won't be a
+bijection, since the new summands have no preimages. That's supported by the
+fact that there is no function `t -> Void` unless `t = Void`.
+
 
 See the [Tuple](Examples/Tuple.hs) example for elementary use of
 `productF` and `eliminateTerm` to create tuple projections, and
 [Sum](Examples/Sum.hs) for a similar example involving 2-place sums.
-
-
 
 Invertible printers (parsers included)
 ======================================
