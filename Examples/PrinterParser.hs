@@ -26,6 +26,7 @@ import Prelude hiding ((.), id)
 import Control.Arrow
 import Control.Category
 import Data.Proxy
+import Data.Algebraic.Index
 import Data.Algebraic.Function
 import Data.Algebraic.Product
 import Data.Algebraic.Sum
@@ -119,6 +120,48 @@ parseEx3 str = runKleisli (from example3) ((), str)
 -- Try parsing "(hello)(hello)" and check the result.
 example4 = parserPrinterOfSum (example1 .*. example2)
 
+printparseTrueLong :: F Total Injection ((), String) ((), String)
+printparseTrueLong = string Proxy "True"
+
+printparseFalseLong :: F Total Injection ((), String) ((), String)
+printparseFalseLong = string Proxy "False"
+
+printparseTrueShort :: F Total Injection ((), String) ((), String)
+printparseTrueShort = token Proxy 'T'
+
+printparseFalseShort :: F Total Injection ((), String) ((), String)
+printparseFalseShort = token Proxy 'F'
+
+-- This print/parse always prints the long form, but also parses the short
+-- form. First we use sumF on the two printer/parsers to get a function on
+-- sums: (((), String) :+: ((), String)) -> (((), String) :+: ((), String))
+-- and then homogeneousSumIndexedSurjection allows us to choose a which
+-- summand to use in the print direction, so as to collapse the input and
+-- output sums down to singletons.
+printparseTrue = homogeneousSumIndexedSurjection one (sumF (printparseTrueLong .*. printparseTrueShort))
+
+-- For demonstration, we choose index 2 here: False is printed as F, but will
+-- parse as False or F.
+printparseFalse = homogeneousSumIndexedSurjection two (sumF (printparseFalseLong .*. printparseFalseShort))
+
+-- Now, to print/parse bool, we need only express Bool for what it really is:
+-- a two-place sum of units. In particular, we'll just need an
+--   F Total Bijection Bool (() :+: ())
+-- Then, with the help of 
+--   thru :: F f g s t -> F f g (s, c) (t, c)
+-- which is like @first@ for @Arrow@s, we can line it up with 
+--   parserPrinterOfSum (printparseTrue .*. printparseFalse)
+--       :: F Total
+--            Function
+--            (() :+: (), String)
+--            ((), String)
+-- to get what we need.
+boolAsSum :: F Total Bijection Bool (() :+: ())
+boolAsSum = F (arr (\b -> if b then inject one () else inject two ()))
+              (arr (\(Sum sum) -> either (const True) (const False) sum))
+
+printparseBool =  parserPrinterOfSum (printparseTrue .*. printparseFalse)
+              <.> thru boolAsSum
 
 -- | Product of printer/parsers to printer/parser of product.
 --
