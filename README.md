@@ -241,3 +241,40 @@ that when you parse it, you get 0 or more results, which is just what we want,
 because the parsers for the summands may overlap! That's to say, if you
 construct an ambiguous parser, it will produce all possible preimages under
 the printer!
+
+```Haskell
+-- printparseBool is a printer/parser where a Bool is parsed from short or
+-- long form: "T" or "True" for True, "F" or "False" for False.
+
+-- Notice how both possibilities are given!
+runKleisli (from printparseBool) ((), "True")
+>>> [(True, ""), (True, "rue")]
+
+-- We can sequence the printer/parser by making a product of it and using
+-- parserPrinterOfProduct:
+--
+-- Notice how there's only one member of the output. The short form of True
+-- was eliminated because "rueF" does not parse.
+let p = parserPrinterOfProduct (printparseBool .*. printparseBool)
+runKleisli (from p) ((), "TrueF")
+>>> [((True) x (False)), "")]
+
+-- To drive the point home:
+runKleisli (from p) ((), "TrueFalse")
+>>> [((True) x (False)), ""), ((True) x (False), "alse")]
+
+-- When printing, it's nice to have a total function, rather than a
+-- "multifunction" in which 1 or more outputs are given. That means, if there
+-- are many string which parse to your value (as is the case for True and False
+-- here) then you must choose a canonical representation, the one that should
+-- be printed always.
+-- For demonstration, we choose "True" as the canonical form of True, and "F"
+-- as the canonical form of False.
+runKleisli (to p) (True .*. False, "")
+>>> Identity ((), "TrueF")
+
+-- Had we not chosen canonical representations, we'd instead have:
+runKleisli (to p) (True .*. False, "")
+>>> [((), "TF"), ((), "TrueF"), ((), "TFalse"), ((), "TrueFalse")]
+-- each of which parses to (True .*. False, "")
+```
