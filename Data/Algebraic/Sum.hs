@@ -23,6 +23,7 @@ module Data.Algebraic.Sum (
 
       Sum(..)
     , (:+:)
+    , SumSize
     , SummandAt
     , SumWithoutSummandAt
     , SumDecompose
