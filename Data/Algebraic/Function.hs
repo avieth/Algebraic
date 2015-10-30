@@ -54,7 +54,7 @@ module Data.Algebraic.Function (
     , sumF
     , SequenceProduct
     , sequenceProduct
-    , pair
+    , thru
     , pass
     , known
     , forget
@@ -69,10 +69,13 @@ module Data.Algebraic.Function (
     , totalBijectionOfUnitProduct
     , TotalSurjectionOfHomogeneousSum
     , totalSurjectionOfHomogeneousSum
+    , TotalInjectionOfSummand
+    , totalInjectionOfSummand
     , HomogeneousSumImage
     , homogeneousSumImage
     , HomogeneousSumPreimage
     , homogeneousSumPreimage
+    , homogeneousSumIndexedSurjection
 
     , disassembleProduct
     , disassembleSum
@@ -1120,6 +1123,59 @@ instance {-# OVERLAPS #-}
         ffrom :: Surjection s (s :+: rest)
         ffrom = Kleisli homogeneousSumPreimage
 
+-- | This class and its instances give us, for any summand, a total injection
+--   into any sum containing that summand at the given index.
+class TotalInjectionOfSummand index sum where
+    totalInjectionOfSummand
+        :: Index index
+        -> F Total Injection (SummandAt sum index) sum
+
+instance {-# OVERLAPS #-}
+    ( s ~ SummandAt s 1
+    ) => TotalInjectionOfSummand 1 s
+  where
+    totalInjectionOfSummand _ = F returnA returnA
+
+instance {-# OVERLAPS #-}
+    (
+    ) => TotalInjectionOfSummand 1 (s :+: rest)
+  where
+    totalInjectionOfSummand _ = F fto ffrom
+      where
+        fto :: Total s (s :+: rest)
+        fto = arr $ \s -> Sum (Left s)
+        ffrom :: Injection (s :+: rest) s
+        ffrom = Kleisli $ \(Sum sum) -> case sum of
+                              Left s -> Just s
+                              Right _ -> Nothing
+
+instance {-# OVERLAPS #-}
+    ( SummandAt rest (n - 1) ~ SummandAt (s :+: rest) n
+    , TotalInjectionOfSummand (n - 1) rest
+    ) => TotalInjectionOfSummand n (s :+: rest)
+  where
+    totalInjectionOfSummand _ =
+        let recursive :: F Total
+                           Injection
+                           (SummandAt rest (n - 1))
+                           rest
+            recursive = totalInjectionOfSummand (Index :: Index (n - 1))
+
+            reassemble :: F Total
+                            Injection
+                            (rest)
+                            (s :+: rest)
+            reassemble = F fto ffrom
+              where
+                fto :: Total rest (s :+: rest)
+                fto = arr $ Sum . Right
+                ffrom :: Injection (s :+: rest) rest
+                ffrom = Kleisli $ \(Sum sum) -> case sum of
+                                      Left _ -> Nothing
+                                      Right r -> Just r
+
+        in  reassemble <.> recursive
+
 type family HomogeneousSumType sum :: * where
     HomogeneousSumType (s :+: rest) = s
     HomogeneousSumType s = s
@@ -1158,6 +1214,67 @@ instance {-# OVERLAPS #-}
     homogeneousSumPreimage x =
            pure (Sum (Left x))
         <> fmap (Sum . Right) (homogeneousSumPreimage x :: NonEmpty rest)
+
+-- | By choosing a particular summand to use in the `to` direction, and
+--   trying all summands in the `from` direction, we get at most a total
+--   surjection from s t *through* any `F` on homogeneous sums of s and t.
+--
+--   Note that this *cannot* be expressed in terms of
+--     totalInjectionOfSummand
+--   and
+--     totalSurjectionOfHomogeneousSum
+--   as that would give us a Total Function. But here we are able to obtain
+--   a Total Surjection. The crucial difference: totalInjectionOfSummand
+--   just doesn't have enough information to give anything better than an
+--   injection.
+homogeneousSumIndexedSurjection
+    :: forall index g h ssum tsum .
+       ( Arrow g
+       , Arrow h
+       , WitnessGLB g Total
+       , GLB g Total ~ GLB Total g
+       , WitnessGLB h Surjection
+       , WitnessGLB Surjection h
+       , Arrow (GLB h Surjection)
+       , GLB h Surjection ~ GLB Surjection h
+       , TotalSurjectionOfHomogeneousSum tsum
+       , TotalInjectionOfSummand index tsum
+       -- Obivously true: tsum is homogeneous!
+       , HomogeneousSumType tsum ~ SummandAt tsum index
+       , Inject index (HomogeneousSumType ssum) ssum
+       , HomogeneousSumImage ssum (HomogeneousSumType ssum)
+       )
+    => Index index
+    -> F g h ssum tsum
+    -> F (GLB Total g)
+         (GLB Surjection h)
+         (HomogeneousSumType ssum)
+         (HomogeneousSumType tsum)
+homogeneousSumIndexedSurjection index f =
+    let totalSurjection :: F Total Surjection tsum (HomogeneousSumType tsum)
+        totalSurjection = totalSurjectionOfHomogeneousSum
+        totalInjection :: F Total Injection (HomogeneousSumType tsum) tsum
+        totalInjection = totalInjectionOfSummand index
+
+        fto :: (GLB Total g) (HomogeneousSumType ssum) (HomogeneousSumType tsum)
+        fto = let injectIt :: HomogeneousSumType ssum -> ssum
+                  injectIt = inject index
+                  forward :: (GLB g Total) ssum tsum
+                  forward = witnessGLB (Proxy :: Proxy Total) (to f)
+                  collapse :: (GLB Total g) tsum (HomogeneousSumType tsum)
+                  collapse = witnessGLB (Proxy :: Proxy g) (to totalSurjection)
+              in  collapse . forward . arr injectIt
+
+        ffrom :: (GLB Surjection h) (HomogeneousSumType tsum) (HomogeneousSumType ssum)
+        ffrom = let uncollapse :: (GLB Surjection h) (HomogeneousSumType tsum) tsum
+                    uncollapse = witnessGLB (Proxy :: Proxy h) (from totalSurjection)
+                    backward :: (GLB h Surjection) tsum ssum
+                    backward = witnessGLB (Proxy :: Proxy Surjection) (from f)
+                    replaceIt :: ssum -> HomogeneousSumType ssum
+                    replaceIt = homogeneousSumImage
+                in  arr replaceIt . backward . uncollapse
+
+    in  F fto ffrom
 
 reassembleProduct
     :: forall f g s t any .
@@ -1239,8 +1356,8 @@ disassembleSum
 disassembleSum = F (arr (\(Sum sum) -> sum)) (arr (\sum -> Sum sum))
 
 -- | Like @first@ for arrows.
-pair :: (Arrow f, Arrow g) => F f g s t -> F f g (s, c) (t, c)
-pair f = F (first (to f)) (first (from f))
+thru :: (Arrow f, Arrow g) => F f g s t -> F f g (s, c) (t, c)
+thru f = F (first (to f)) (first (from f))
 
 -- | Pass over an F by supplying a fixed input and output.
 pass :: (Arrow f, Arrow g) => s -> t -> F f g s t -> F f g c c
