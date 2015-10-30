@@ -199,7 +199,8 @@ must be partial), and an `F` from a bigger product to a smaller one to not be
 injective.
 
 See the [Tuple](Examples/Tuple.hs) example for elementary use of
-`productF` and `eliminateTerm` to create tuple projections.
+`productF` and `eliminateTerm` to create tuple projections, and
+[Sum](Examples/Sum.hs) for a similar example involving 2-place sums.
 
 
 

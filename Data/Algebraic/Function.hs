@@ -34,6 +34,7 @@ module Data.Algebraic.Function (
     , WitnessGLB
     , witnessGLB
     , Composable
+    , identity
     , fcompose
     , (<.>)
     , Total
@@ -59,8 +60,11 @@ module Data.Algebraic.Function (
     , forget
     , throughTraversable
     , eliminateTerm
+    , eliminateSummand
     , introduceTerm
+    , introduceSummand
     , swapTerms
+    , swapSummands
     , TotalBijectionOfUnitProduct
     , totalBijectionOfUnitProduct
     , TotalSurjectionOfHomogeneousSum
@@ -110,6 +114,9 @@ instance (Category f, Category g) => Category (F f g) where
 instance (Category f, Category g) => Monoid (F f g s s) where
     mempty = id
     mappend = (.)
+
+identity :: F Total Bijection s s
+identity = id
 
 -- Here we have a partial order.
 --
@@ -598,7 +605,10 @@ instance {-# OVERLAPS #-}
 
 
 class SwapTermsF product idx1 idx2 where
-    swapTerms :: Index idx1 -> Index idx2 -> F Total Bijection product (SwapTerms product idx1 idx2)
+    swapTerms
+        :: Index idx1
+        -> Index idx2
+        -> F Total Bijection product (SwapTerms product idx1 idx2)
 
 instance {-# OVERLAPS #-}
     (
@@ -764,6 +774,143 @@ instance {-# OVERLAPS #-}
     swapTerms_ _ _ = reassembleProduct id
                    . useBottomOfProduct (swapTerms_ (Index :: Index (idx1 - 1)) (Index :: Index (idx2 - 1)))
                    . disassembleProduct
+
+
+class SwapSummandsF sum index1 index2 where
+    swapSummands
+        :: sum
+        -> Index index1
+        -> Index index2
+        -> SwapSummands sum index1 index2
+
+instance
+    ( SwapSummandsFDisambiguated (SwapSummandsFamilyClause sum index1 index2) sum index1 index2
+    ) => SwapSummandsF sum index1 index2
+  where
+    swapSummands = swapSummandsDisambiguated (Proxy :: Proxy (SwapSummandsFamilyClause sum index1 index2))
+
+class  SwapSummandsFDisambiguated clauseNumber sum index1 index2 where
+    swapSummandsDisambiguated
+        :: Proxy clauseNumber
+        -> sum
+        -> Index index1
+        -> Index index2
+        -> SwapSummands sum index1 index2
+
+instance {-# OVERLAPS #-} SwapSummandsFDisambiguated 1 sum n n where
+    swapSummandsDisambiguated _ x _ _ = x
+
+-- This overlaps with the next one. How to avoid?
+instance {-# OVERLAPS #-}
+    ( SwapSummandsNormalizeF (a :+: b :+: c) index1 index2 (CmpNat index1 index2)
+    ,   SwapSummands (a :+: b :+: c) index1 index2
+      ~ SwapSummandsNormalize (a :+: b :+: c) index1 index2 (CmpNat index1 index2)
+    ) => SwapSummandsFDisambiguated 2 (a :+: b :+: c) index1 index2
+  where
+    swapSummandsDisambiguated _ sum index1 index2 =
+        swapSummandsNormalize sum index1 index2 (Proxy :: Proxy (CmpNat index1 index2))
+
+instance {-# OVERLAPS #-}
+    ( SwapSummands (a :+: b) 1 2 ~ (b :+: a)
+    ) => SwapSummandsFDisambiguated 3 (a :+: b) 1 2
+  where
+    swapSummandsDisambiguated _ (Sum sum) _ _ = case sum of
+        Left l -> Sum (Right l)
+        Right r -> Sum (Left r)
+
+instance {-# OVERLAPS #-}
+    ( SwapSummands (a :+: b) 2 1 ~ (b :+: a)
+    ) => SwapSummandsFDisambiguated 4 (a :+: b) 2 1
+  where
+    swapSummandsDisambiguated _ (Sum sum) _ _ = case sum of
+        Left l -> Sum (Right l)
+        Right r -> Sum (Left r)
+
+class SwapSummandsNormalizeF sum index1 index2 order where
+    swapSummandsNormalize
+        :: sum
+        -> Index index1
+        -> Index index2
+        -> Proxy order
+        -> SwapSummandsNormalize sum index1 index2 order
+
+instance {-# OVERLAPS #-}
+    ( SwapSummands_F sum index1 index2
+    ) => SwapSummandsNormalizeF sum index1 index2 'LT
+  where
+    swapSummandsNormalize sum index1 index2 _ = swapSummands_ sum index1 index2
+
+instance {-# OVERLAPS #-}
+    ( SwapSummands_F sum index2 index1
+    ) => SwapSummandsNormalizeF sum index1 index2 'GT
+  where
+    swapSummandsNormalize sum index1 index2 _ = swapSummands_ sum index2 index1
+
+class SwapSummands_F sum index1 index2 where
+    swapSummands_
+        :: sum
+        -> Index index1
+        -> Index index2
+        -> SwapSummands_ sum index1 index2
+
+instance {-# OVERLAPS #-}
+    ( SwapSummands_ (p :+: q) 1 2 ~ (q :+: p)
+    ) => SwapSummands_F (p :+: q) 1 2
+  where
+    swapSummands_ (Sum sum) _ _ = case sum of
+        Left p -> Sum (Right p)
+        Right q -> Sum (Left q)
+
+instance {-# OVERLAPS #-}
+    (
+    ) => SwapSummands_F (p :+: q :+: r) 1 2
+  where
+    swapSummands_ (Sum sum) _ _ = case sum of
+        Left p -> Sum (Right (Sum (Left p)))
+        Right (Sum (Left q)) -> Sum (Left q)
+        Right (Sum (Right r)) -> Sum (Right (Sum (Right r)))
+
+-- Now, can we use SumDecompose to help implement swapping?
+-- We decompose the @q@ at index2 - 1 and if it's left, we inject it at place
+-- 1, else we have the remaining sum without index2 - 1 so we need to expand
+-- that to include a place for @p@ where @q@ formerly was.
+-- Do we have the tools to do that? That requires a class to mirror the
+-- family IntroduceSummand.
+-- Ok, so do that...
+
+instance {-# OVERLAPS #-}
+    ( SumDecompose q (index2 - 1)
+    -- Obviously true, since SwapSummands_ (p :+: q) 1 index2 puts q at
+    -- index 1.
+    , Inject 1 (SummandAt q (index2 - 1)) (SwapSummands_ (p :+: q) 1 index2)
+    , SumRecompose p (SumWithoutSummandAt q (index2 - 1)) (index2 - 1)
+    -- Obviously true: SwapSummands_ (p :+: q) 1 index2 puts
+    -- SummandAt q (index2 - 1) at the front, and removes it from the same
+    -- index, then introduces p at that same index.
+    ,   (SwapSummands_ (p :+: q) 1 index2)
+      ~ ((SummandAt q (index2 - 1)) :+: (IntroduceSummand p (SumWithoutSummandAt q (index2 - 1)) (index2 - 1)))
+    , Inject index2 p (SwapSummands_ (p :+: q) 1 index2)
+    ) => SwapSummands_F (p :+: q) 1 index2
+  where
+    swapSummands_ (Sum sum) _ _ = case sum of
+        -- If we have Left then we can just inject it into the desired output.
+        Left p -> inject (Index :: Index index2) p
+        -- If we have Right then what? We have to somehow turn q into
+        --   (SummandAt (p :+: q) index2) :+: (ReplaceSummand p q (index2 - 1))
+        -- but it's not clear how to do that.
+        Right q -> case sumDecompose q (Index :: Index (index2 - 1)) :: Either (SummandAt q (index2 - 1)) (SumWithoutSummandAt q (index2 - 1)) of
+            Left q' -> inject (Index :: Index 1) q'
+            Right rest -> Sum (Right (sumRecompose (Proxy :: Proxy p) rest (Index :: Index (index2 - 1))))
+
+instance {-# OVERLAPS #-}
+    ( SwapSummands_F q (index1 - 1) (index2 - 1)
+    ,   SwapSummands_ (p :+: q) index1 index2
+      ~ (p :+: (SwapSummands_ q (index1 - 1) (index2 - 1)))
+    ) => SwapSummands_F (p :+: q) index1 index2
+  where
+    swapSummands_ (Sum sum) _ _ = case sum of
+        Left p -> Sum (Left p)
+        Right q -> Sum (Right (swapSummands_ q (Index :: Index (index1 - 1)) (Index :: Index (index2 - 1))))
 
 
 -- | Given a product of Fs, get all of the fs, in order.

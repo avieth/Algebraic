@@ -45,9 +45,6 @@ terminal = F fto ffrom
     ffrom :: EmptyArrow () a
     ffrom = EmptyArrow
 
-identity :: F Total Bijection a a
-identity = id
-
 projectFirst :: (Enum b, Bounded b) => F Total Surjection (a :*: b) a
 projectFirst = eliminateTerm two <.> productF (identity .*. terminalSurjection)
 
