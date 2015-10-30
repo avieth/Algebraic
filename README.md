@@ -6,6 +6,9 @@ which are richer than the typical Haskell functions (of type `(->)`). In
 particular, functions which are known to be bijective, or injective, or
 surjective, or total, or partial, etc.
 
+Note: I expect the program text is hard to read. If you have any questions,
+please send me an email. I'm happy to help.
+
 The foundation is this type, from [Data.Algebraic.Function](Data/Algebraic/Function.hs)
 
 ```Haskell
