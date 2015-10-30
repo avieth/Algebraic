@@ -206,15 +206,29 @@ See the [Tuple](Examples/Tuple.hs) example for elementary use of
 Invertible printers (parsers included)
 ======================================
 
-Suppose we want to print a datatype. This is a function of type `t -> String`,
-or some other string-like thing. Lessons learnt from exisiting parser libraries
-show us that a parser is not `String -> t`, but `String -> (t, String)`, where
-the tail of the string which was not used to parser `t` is fed to the output.
+Suppose we want to print a datatype. We'll need a function of type `t -> String`,
+or some other string-like thing. Suppose we'd also like to be able to parse the
+printed thing: we need something which is left-inverse to the printer.
+Lessons learnt from exisiting parser libraries show us that a parser is not
+`String -> t`, but `String -> (t, String)` or something similar, noting that
+it's important to produce another string after parsing, to represent the
+remaining, unparsed input.
 So if we want an invertible printer, we'd better have something more like
-`(t, String) -> String`. But now we have trouble composing printers. We
+`(t, String) -> String`, because when you flip this function around, you get
+the type of a parser. But now we have trouble composing printers. We
 have `printer2 <.> printer1` only when `printer2 :: String -> (u, String)`.
 If we make the type symmetrical, things are much cleaner. So, we choose
-`F g h (s, String) (t, String)`
-as the type for a printer/parser.
+`(s, String) -> (t, String)` for an invertible printer. Bring this into
+the world of `F`, and we'll be working with
 
-Be sure to mention how, when we parse a sum, we get a list of results.
+```Haskell
+type PrinterPaser stream g h s t = F g h (s, stream) (t, stream)
+```
+
+Check out the [PrinterParser](Examples/PrinterParser.hs) example to see this
+in action. It's actually pretty cool: when you define a printer/parser for a
+sum type of two or more summands, the reversal becomes a `Function`, meaning
+that when you parse it, you get 0 or more results, which is just what we want,
+because the parsers for the summands may overlap! That's to say, if you
+construct an ambiguous parser, it will produce all possible preimages under
+the printer!
