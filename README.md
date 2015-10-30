@@ -238,11 +238,12 @@ type PrinterPaser stream g h s t = F g h (s, stream) (t, stream)
 
 Check out the [PrinterParser](Examples/PrinterParser.hs) example to see this
 in action. It's actually pretty cool: when you define a printer/parser for a
-sum type of two or more summands, the reversal becomes a `Function`, meaning
-that when you parse it, you get 0 or more results, which is just what we want,
-because the parsers for the summands may overlap! That's to say, if you
-construct an ambiguous parser, it will produce all possible preimages under
-the printer!
+sum type of two or more summands, the reversal becomes at most a `Surjection`
+(but maybe something lesser, like a `Function`, in case the summands are
+not `Bijection`s) meaning that when you parse it, you may get more than 1
+result, which is just what we want, because the parsers for the summands may
+overlap! That's to say, if you construct an ambiguous parser, it will produce
+all possible preimages under the printer!
 
 ```Haskell
 -- printparseBool is a printer/parser where a Bool is parsed from short or
