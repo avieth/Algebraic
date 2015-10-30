@@ -147,3 +147,48 @@ sumF :: (F f1 g1 s1 t1 :*: ... :*: F fn gn sn tn)
 
 These are not the types as they appear in GHCi, since these functions are
 implemented via type classes, but that's what they essentially are.
+
+When interested in `F`s where the domain and codomain are not equally-sized
+sums or products, we can turn to these functions:
+
+```Haskell
+-- There is a total bijection between any product, and that same product with
+-- an () inserted anywhere into it. For instance, using normal Haskell tuple
+-- notation, (String, Int) and (String, Int, ()) are clearly isomorphic.
+introduceTerm :: Index index
+              -> F Total
+                   Bijection
+                   product
+                   (IntroduceTerm () product index)
+
+-- Dually to introduceTerm, we can replace () with Void, which is the identity
+-- for sums, and we obtain a total bijection from any sum to that same sum
+-- with a Void thrown in.
+introduceSummand :: Index index
+                 -> F Total
+                      Bijection
+                      sum
+                      (IntroduceSummand Void sum index)
+
+-- We can also eliminate a () from any product.
+-- The type doesn't show it, but this function will only work when
+-- the component of the product at index is ().
+eliminateTerm :: Index index
+              -> F Total
+                   Bijection
+                   product
+                   (EliminateTerm product index)
+
+-- This is only possible when the summand at index is of type Void.
+eliminateSummand :: Index index
+                 -> F Total
+                      Bijection
+                      sum
+                      (EliminateSummand sum index)
+```
+
+The fact that we must reach `()` or `Void` in order to shrink a product or sum,
+respectively, is exactly what we expect. It forces an `F` from a bigger sum to
+a smaller one to be partial (because a function from `t /= Void` to `Void`
+must be partial), and an `F` from a bigger product to a smaller one to not be
+injective.
