@@ -86,6 +86,7 @@ import Control.Arrow
 import Control.Applicative
 import Control.Monad
 import Data.Proxy
+import Data.Void
 import Data.Semigroup ((<>), Semigroup)
 import Data.Functor.Identity
 import Data.List.NonEmpty
@@ -412,6 +413,62 @@ instance {-# OVERLAPS #-}
         ffrom :: Bijection (() :*: p) p
         ffrom = arr (\(Product ((), p)) -> p)
 
+
+class IntroduceSummandF sum idx where
+    introduceSummand :: Index idx -> F Total Bijection sum (IntroduceSummand Void sum idx)
+
+instance {-# OVERLAPS #-}
+    (
+    ) => IntroduceSummandF (p :+: rest) 1
+  where
+    introduceSummand _ = F fto ffrom
+      where
+        fto :: Total (p :+: rest) (Void :+: p :+: rest)
+        fto = arr (\sum -> Sum (Right sum))
+        ffrom :: Bijection (Void :+: p :+: rest) (p :+: rest)
+        ffrom = arr (\(Sum (Right sum)) -> sum)
+
+instance {-# OVERLAPS #-}
+    ( IntroduceSummand Void rest 1 ~ (Void :+: rest)
+    , IntroduceSummandF rest 1
+    ) => IntroduceSummandF (p :+: rest) 2
+  where
+    introduceSummand _ = reassembleSum id
+                       . useBottomOfSum (introduceSummand (Index :: Index 1))
+                       . disassembleSum
+
+instance {-# OVERLAPS #-}
+    ( IntroduceSummand Void (p :+: rest) n ~ (p :+: IntroduceSummand Void rest (n - 1))
+    , IntroduceSummandF rest (n - 1)
+    ) => IntroduceSummandF (p :+: rest) n
+  where
+    introduceSummand _ = reassembleSum id
+                       . useBottomOfSum (introduceSummand (Index :: Index (n - 1)))
+                       . disassembleSum
+
+instance {-# OVERLAPS #-}
+    ( IntroduceSummand Void p 2 ~ (p :+: Void)
+    ) => IntroduceSummandF p 2
+  where
+    introduceSummand _ = F fto ffrom
+      where
+        fto :: Total p (p :+: Void)
+        fto = arr (\p -> Sum (Left p))
+        ffrom :: Bijection (p :+: Void) p
+        ffrom = arr (\(Sum (Left p)) -> p)
+
+instance {-# OVERLAPS #-}
+    ( IntroduceSummand Void p 1 ~ (Void :+: p)
+    ) => IntroduceSummandF p 1
+  where
+    introduceSummand _ = F fto ffrom
+      where
+        fto :: Total p (Void :+: p)
+        fto = arr (\p -> (Sum (Right p)))
+        ffrom :: Bijection (Void :+: p) p
+        ffrom = arr (\(Sum (Right (p))) -> p)
+
+
 -- | Instances of this class follow the EliminateTerm family clauses, but with
 --   () as the thing being eliminated.
 class EliminateTermF product idx where
@@ -474,6 +531,70 @@ instance {-# OVERLAPS #-}
     ) => EliminateTermF () 1
   where
     eliminateTerm _ = F returnA returnA
+
+
+class EliminateSummandF sum idx where
+    eliminateSummand :: Index idx -> F Total Bijection sum (EliminateSummand sum idx)
+
+instance {-# OVERLAPS #-}
+    (
+    ) => EliminateSummandF (Void :+: rest) 1
+  where
+    eliminateSummand _ = F fto ffrom
+      where
+        -- Here we can ignore the Left case, since there couldn't possibly
+        -- be a Void.
+        fto :: Total (Void :+: rest) rest
+        fto = arr (\(Sum (Right rest)) -> rest)
+        ffrom :: Bijection rest (Void :+: rest)
+        ffrom = arr (\rest -> Sum (Right rest))
+
+-- This instance is to avoid overlap problems.
+instance {-# OVERLAPS #-}
+    (
+    ) => EliminateSummandF (Void :+: q :+: rest) 1
+  where
+    eliminateSummand _ = F fto ffrom
+      where
+        fto :: Total (Void :+: q :+: rest) (q :+: rest)
+        fto = arr (\(Sum (Right qrest)) -> qrest)
+        ffrom :: Bijection (q :+: rest) (Void :+: q :+: rest)
+        ffrom = arr (\qrest -> Sum (Right qrest))
+
+instance {-# OVERLAPS #-}
+    ( EliminateSummand (p :+: q :+: rest) n ~ (p :+: EliminateSummand (q :+: rest) (n - 1))
+    , EliminateSummandF (q :+: rest) (n - 1)
+    ) => EliminateSummandF (p :+: q :+: rest) n
+  where
+    eliminateSummand _ = reassembleSum id
+                       . useBottomOfSum (eliminateSummand (Index :: Index (n - 1)))
+                       . disassembleSum
+
+instance {-# OVERLAPS #-}
+    (
+    ) => EliminateSummandF (p :+: Void) 2
+  where
+    eliminateSummand _ = F fto ffrom
+      where
+        fto :: Total (p :+: Void) p
+        fto = arr (\(Sum (Left p)) -> p)
+        ffrom :: Bijection p (p :+: Void)
+        ffrom = arr (\p -> Sum (Left p))
+
+instance {-# OVERLAPS #-}
+    ( (EliminateSummand (p :+: rest) n) ~ (p :+: EliminateSummand rest (n - 1))
+    , EliminateSummandF rest (n - 1)
+    ) => EliminateSummandF (p :+: rest) n
+  where
+    eliminateSummand _ = reassembleSum id
+                       . useBottomOfSum (eliminateSummand (Index :: Index (n - 1)))
+                       . disassembleSum
+
+instance {-# OVERLAPS #-}
+    (
+    ) => EliminateSummandF Void 1
+  where
+    eliminateSummand _ = F returnA returnA
 
 
 class SwapTermsF product idx1 idx2 where
@@ -643,6 +764,7 @@ instance {-# OVERLAPS #-}
     swapTerms_ _ _ = reassembleProduct id
                    . useBottomOfProduct (swapTerms_ (Index :: Index (idx1 - 1)) (Index :: Index (idx2 - 1)))
                    . disassembleProduct
+
 
 -- | Given a product of Fs, get all of the fs, in order.
 type family ProductTos (ps :: *) :: [* -> * -> *] where

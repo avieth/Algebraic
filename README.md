@@ -95,7 +95,7 @@ isPositive :: F Total Surjection Int Bool
 isPositive = F (arr (\x -> x > 0))
                (Kleisli $ \b -> if b
                    then (1 :| [2..])
-                   else negate (0 :| [1..])
+                   else fmap negate (0 :| [1..])
                )
 
 boolNot :: F Total Bijection Bool Bool
@@ -123,4 +123,27 @@ example = boolNot <.> isPositive <.> plus 5
 Constructing functions
 ======================
 
-TODO
+So we can build rich functions using a category-like interface; big deal.
+But things get interesting when we mix in algebraic datatypes.
+By giving types for sums and products, as we do in
+[Data.Algebraic.Product](Data/Algebraic/Product.hs) and
+[Data.Algebraic.Sum](Data/Algebraic/Sum.hs), we can construct rich functions
+componentwise. That's to say, if you give a product of `F`s, then you have
+an `F` on a corresponding product or sum:
+
+```Haskell
+productF :: (F f1 g1 s1 t1 :*: ... :*: F fn gn sn tn)
+         -> F (GLBFold [f1,..,fn])
+              (GLBFold [g1,..,gn])
+              (s1 :*: ... :*: sn)
+              (t1 :*: ... :*: tn)
+
+sumF :: (F f1 g1 s1 t1 :*: ... :*: F fn gn sn tn)
+     -> F (GLBFold [f1,..,fn])
+          (GLBFold [g1,..,gn])
+          (s1 :+: ... :+: sn)
+          (t1 :+: ... :+: tn)
+```
+
+These are not the types as they appear in GHCi, since these functions are
+implemented via type classes, but that's what they essentially are.
