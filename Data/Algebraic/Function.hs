@@ -100,11 +100,12 @@ import Data.List.NonEmpty
 import Numeric.Additive.Group
 import Numeric.Additive.Class
 import Data.Algebraic.Index
-import Data.Algebraic.Order
 import Data.Algebraic.Product
 import Data.Algebraic.Sum
 
--- | Not a Monad, not an Arrow, not even a Functor!
+-- | A function in two directions, where each direction is a (possibly distinct)
+--   Arrow. This is not a Monad, not an Arrow, not even a Functor! It's
+--   a Category, though.
 data F f g a b = F {
       to :: f a b
     , from :: g b a
@@ -159,13 +160,15 @@ instance Arrow EmptyArrow where
 
 -- | The greatest lower bound is a commutative thing. We present this:
 --
---                     Kleisli Identity |Kleisli Maybe   |Kleisli NonEmpty|Kleisli []|EmptyArrow
---                   +--------------------------------------------------------------------------
---   Kleisli Identity| Kleisli Identity |Kleisli Maybe   |Kleisli NonEmpty|Kleisli []|EmptyArrow
---   Kleisli Maybe   | Kleisli Maybe    |Kleisli Maybe   |Kleisli []      |Kleisli []|EmptyArrow
---   Kleisli NonEmpty| Kleisli NonEmpty |Kleisli NonEmpty|Kleisli NonEmpty|Kleisli []|EmptyArrow
---   Kleisli []      | Kleisli []       |Kleisli []      |Kleisli []      |Kleisli []|EmptyArrow
---   EmptyArrow      | EmptyArrow       |EmptyArrow      |EmptyArrow      |EmptyArrow|EmptyArrow
+--   @
+--                       Kleisli Identity |Kleisli Maybe   |Kleisli NonEmpty|Kleisli []|EmptyArrow
+--                     +--------------------------------------------------------------------------
+--     Kleisli Identity| Kleisli Identity |Kleisli Maybe   |Kleisli NonEmpty|Kleisli []|EmptyArrow
+--     Kleisli Maybe   | Kleisli Maybe    |Kleisli Maybe   |Kleisli []      |Kleisli []|EmptyArrow
+--     Kleisli NonEmpty| Kleisli NonEmpty |Kleisli NonEmpty|Kleisli NonEmpty|Kleisli []|EmptyArrow
+--     Kleisli []      | Kleisli []       |Kleisli []      |Kleisli []      |Kleisli []|EmptyArrow
+--     EmptyArrow      | EmptyArrow       |EmptyArrow      |EmptyArrow      |EmptyArrow|EmptyArrow
+--   @
 --
 type family GLB (h :: * -> * -> *) (f :: * -> * -> *) :: * -> * -> * where
     GLB Bijection f = f
@@ -311,6 +314,9 @@ type Composable f1 f2 = (
     , Category (GLB f1 f2)
     )
 
+-- | Like the Category @(.)@ except that the @GLB@ of the corresponding
+--   arrows is taken, allowing us to compose, for instance, a total injection
+--   with a partial surjection (to get a partial function).
 fcompose
     :: forall f1 g1 f2 g2 s t u .
        ( Composable f1 f2
@@ -327,6 +333,8 @@ fcompose left right = left' . right'
     right' :: F (GLB f2 f1) (GLB g2 g1) s u
     right' = F (witnessGLB (Proxy :: Proxy (GLB f2 f1)) (to right))
                (witnessGLB (Proxy :: Proxy (GLB g2 g1)) (from right))
+
+-- | See @fcompose@.
 (<.>)
     :: forall f1 g1 f2 g2 s t u .
        ( Composable f1 f2

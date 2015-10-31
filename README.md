@@ -6,8 +6,10 @@ which are richer than the typical Haskell functions (of type `(->)`). In
 particular, functions which are known to be bijective, or injective, or
 surjective, or total, or partial, etc.
 
-Note: I expect the program text is hard to read. If you have any questions,
-please send me an email. I'm happy to help.
+Although an experiment, this repository is also a working Haskell package with
+an application to invertible printers, in which a printer and parser is
+defined simultaneously. I expect the program text is hard to read. If you have
+any questions, please send me an email. I'm happy to help.
 
 The foundation is this type, from [Data.Algebraic.Function](Data/Algebraic/Function.hs)
 
