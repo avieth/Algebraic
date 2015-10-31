@@ -189,12 +189,31 @@ eliminateTerm :: Index index
                    product
                    (EliminateTerm product index)
 
+
+
 -- This is only possible when the summand at index is of type Void.
 eliminateSummand :: Index index
                  -> F Total
                       Bijection
                       sum
                       (EliminateSummand sum index)
+
+-- Of course, any product or sum is isomorphic to a permutation of itself.
+-- Since every permutation is the composition of 2-cycles, we just give
+-- swapTerms and swapSummands.
+swapTerms :: Index index1
+          -> Index index2
+          -> F Total
+               Bijection
+               product
+               (SwapTerms product index1 index2)
+
+swapSummands :: Index index1
+             -> Index index2
+             -> F Total
+                  Bijection
+                  sum
+                  (SwapSummands sum index1 index2)
 ```
 
 The fact that we must reach `()` or `Void` in order to shrink a product or sum,
@@ -268,7 +287,7 @@ runKleisli (from p) ((), "TrueFalse")
 
 -- When printing, it's nice to have a total function, rather than a
 -- "multifunction" in which 1 or more outputs are given. That means, if there
--- are many string which parse to your value (as is the case for True and False
+-- are many strings which parse to your value (as is the case for True and False
 -- here) then you must choose a canonical representation, the one that should
 -- be printed always.
 -- For demonstration, we choose "True" as the canonical form of True, and "F"
