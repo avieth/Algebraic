@@ -97,8 +97,6 @@ import Data.Void
 import Data.Semigroup ((<>), Semigroup)
 import Data.Functor.Identity
 import Data.List.NonEmpty
-import Numeric.Additive.Group
-import Numeric.Additive.Class
 import Data.Algebraic.Index
 import Data.Algebraic.Product
 import Data.Algebraic.Sum
