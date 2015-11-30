@@ -18,12 +18,15 @@ Portability : non-portable (GHC only)
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 module Data.Algebraic.Product (
 
       Product(..)
+    , IsProduct
     , (:*:)
     , (.*.)
+    , pattern (:*:)
     , Component
     , getComponent
     , Sub
@@ -101,6 +104,10 @@ import Data.Semigroup (Semigroup, (<>))
 
 newtype Product a b = Product (a, b)
 
+type family IsProduct p :: Bool where
+    IsProduct (Product a b) = 'True
+    IsProduct p = 'False
+
 instance {-# OVERLAPS #-}
     ( Show a
     , Show b
@@ -133,6 +140,8 @@ infixr 8 :*:
 (.*.) :: a -> b -> Product a b
 a .*. b = Product (a, b)
 infixr 8 .*.
+
+pattern x :*: y = Product (x, y)
 
 newtype Component p n = Component {
      getComponent :: Sub p n
