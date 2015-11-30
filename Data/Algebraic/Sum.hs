@@ -26,6 +26,8 @@ module Data.Algebraic.Sum (
     , SumSize
     , SummandAt
     , SumWithoutSummandAt
+    , SumPatternMatch
+    , sumPatternMatch
     , SumDecompose
     , sumDecompose
     , SumRecompose
@@ -52,6 +54,7 @@ import GHC.TypeLits
 import Data.Proxy
 import Data.Void
 import Data.Algebraic.Index
+import Data.Algebraic.Product
 
 newtype Sum a b = Sum (Either a b)
 
@@ -110,6 +113,23 @@ type family SumWithoutSummandAt sum (index :: Nat) where
     SumWithoutSummandAt (summand :+: p :+: rest) 2 = summand :+: rest
     SumWithoutSummandAt (summand :+: rest) 2 = summand
     SumWithoutSummandAt (summand :+: rest) n = summand :+: (SumWithoutSummandAt rest (n - 1))
+
+class SumPatternMatch f sum out where
+    sumPatternMatch :: f -> sum -> out
+
+instance {-# OVERLAPS #-}
+    (
+    ) => SumPatternMatch (summand -> out) summand out
+  where
+    sumPatternMatch = ($)
+
+instance {-# OVERLAPS #-}
+    ( SumPatternMatch rest sum out
+    ) => SumPatternMatch ((summand -> out) :*: rest) (summand :+: sum) out
+  where
+    sumPatternMatch (f :*: frest) (Sum sum) = case sum of
+        Left x -> f x
+        Right xs -> sumPatternMatch frest xs
 
 -- | Decompose a sum at an index. If that index is where the value is, you get
 --   that value; otherwise, you get a sum with that place removed.
@@ -319,3 +339,5 @@ instance {-# OVERLAPS #-}
     applyFunctionToHomogeneousSum f (Sum sum) = case sum of
         Left l -> Sum (Left (f l))
         Right r -> Sum (Right (applyFunctionToHomogeneousSum f r))
+
+
